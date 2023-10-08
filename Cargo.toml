@@ -7,4 +7,4 @@ edition = "2021"
 
 [dependencies]
 indoc = "2.0.4"
-rustyline = "12.0.0"
+simple-repl = "0.1.0"
