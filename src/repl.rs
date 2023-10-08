@@ -1,23 +1,29 @@
-use std::io;
-use std::io::Write;
+use rustyline::error::ReadlineError;
+use rustyline::DefaultEditor;
 
-pub fn repl_base(evaluator: impl Fn(&str) -> Option<()>) {
+pub enum ReplError {
+    ReadlineError,
+    EvaluatorError,
+}
+
+impl std::convert::From<ReadlineError> for ReplError {
+    fn from(_: ReadlineError) -> Self {
+        ReplError::ReadlineError
+    }
+}
+
+pub fn repl_base(evaluator: impl Fn(&str) -> Option<()>) -> std::result::Result<(), ReplError> {
+    let mut rl = DefaultEditor::new()?;
+
     loop {
-        let mut input = String::new();
+        let input = rl.readline("> ")?;
+        let input_str = input.as_str();
 
-        print!("> ");
+        rl.add_history_entry(input_str)?;
 
-        io::stdout()
-            .flush()
-            .expect("flush to stdout should not fail!");
-
-        io::stdin()
-            .read_line(&mut input)
-            .expect("failed to read line!");
-
-        match evaluator(input.as_str()) {
+        match evaluator(input_str) {
             Some(_) => continue,
-            None => break,
+            None => break Err(ReplError::EvaluatorError),
         }
     }
 }

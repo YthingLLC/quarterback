@@ -4,10 +4,11 @@ fn main() {
     println!("REPL Test:");
     println!();
 
-    repl_base(eval);
+    let _ = repl_base(eval);
 }
 
 fn eval(input: &str) -> Option<()> {
     println!("{input}");
+    println!();
     Some(())
 }
