@@ -84,7 +84,7 @@ impl QuarterbackConfig {
         }
         println!("Users");
         println!();
-        println!("{:<20} {:<40} {}", "Name", "ID", "Super User");
+        println!("{:<20} {:<40} Super User", "Name", "ID");
         for user in self.users.values() {
             println!(
                 "{:<20} {:<40} {:?}",
@@ -184,7 +184,7 @@ impl QuarterbackConfig {
                 let name = input_vec.next();
                 let super_user = QuarterbackConfig::is_true(input_vec.next());
                 if let Some(name) = name {
-                    self.add_user(&name, super_user);
+                    self.add_user(name, super_user);
                 } else {
                     println!("ERROR: A user name must be provided.");
                 }
