@@ -26,7 +26,6 @@ struct PasswordString(String);
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 struct QuarterbackUser {
-    user_id: Uuid,
     user_name: String,
     user_key: PasswordString,
     //If true this user can do anything with no restrictions
@@ -119,6 +118,14 @@ impl QuarterbackConfig {
         }
     }
 
+    pub fn to_yaml(&self) {
+        let yaml = serde_yaml::to_string(&self);
+        match yaml {
+            Ok(yaml) => println!("{yaml}"),
+            Err(e) => println!("Error saving: {e}"),
+        }
+    }
+
     fn print_users(&self) {
         if self.users.is_empty() {
             println!("NO USERS DEFINED");
@@ -126,12 +133,13 @@ impl QuarterbackConfig {
         }
         println!("Users");
         println!();
-        println!("{:<20} {:<40} Super User", "Name", "ID");
-        for user in self.users.values() {
+        println!("{:<40} {:<20} Super User", "ID", "Name");
+        println!();
+        for (id, user) in &self.users {
             println!(
-                "{:<20} {:<40} {:?}",
+                "{:<40} {:<20} {:?}",
+                id.to_string(),
                 user.user_name,
-                user.user_id.to_string(),
                 user.super_user
             );
         }
@@ -155,7 +163,6 @@ impl QuarterbackConfig {
                 self.users.insert(
                     user_id,
                     QuarterbackUser {
-                        user_id,
                         user_name,
                         user_key,
                         super_user,
@@ -261,6 +268,7 @@ impl QuarterbackConfig {
                     println!("ERROR: A user name must be provided.");
                 }
             }
+            Some("save") => self.to_yaml(),
             Some("backing") => self.backing(&mut input_vec),
             Some("is_true") => {
                 println!("{:?}", QuarterbackConfig::is_true(input_vec.next()));
