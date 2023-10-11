@@ -6,5 +6,16 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+argon2 = { version = "0.5.2" }
+getrandom = "0.2.10"
 indoc = "2.0.4"
-simple-repl = "0.1.0"
+rand_core = "0.6.4"
+serde = { version = "1.0.188", features = ["derive"] }
+serde_yaml = "0.9.25"
+simple-repl = "0.1.4"
+uuid = { version = "1.4.1", features = [
+  "v4",
+  "fast-rng",
+  "macro-diagnostics",
+  "serde",
+] }
