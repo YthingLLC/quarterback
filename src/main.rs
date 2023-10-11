@@ -3,10 +3,10 @@
 use std::collections::{HashMap, HashSet};
 
 use argon2::{
-    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    password_hash::{PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
-use rand_core::{OsRng, RngCore};
+use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
 use simple_repl::{repl, EvalResult};
 use uuid::Uuid;
