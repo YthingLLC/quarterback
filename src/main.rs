@@ -10,6 +10,10 @@ use clap::{Parser, ValueEnum};
 use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
 use simple_repl::{repl, EvalResult};
+use std::fs::File;
+use std::io::prelude::*;
+use std::path::Path;
+use std::time::Duration;
 use uuid::Uuid;
 
 macro_rules! print_if {
@@ -35,16 +39,16 @@ struct QuarterbackUser {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 struct QuarterbackRole {
-    role_id: Uuid,
     role_name: String,
     allowed_actions: HashSet<Uuid>,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 struct QuarterbackAction {
-    action_id: Uuid,
     action_path: String,
     action_args: String,
+    timeout: Duration,
+    cooldown: Duration,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -58,6 +62,7 @@ enum QuarterbackConfigBacking {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 struct YamlFileConfig {
+    #[serde(skip)]
     config_file_path: String,
 }
 
@@ -118,10 +123,23 @@ impl QuarterbackConfig {
         }
     }
 
-    pub fn to_yaml(&self) {
-        let yaml = serde_yaml::to_string(&self);
+    pub fn from_yaml(config: &str) -> Result<QuarterbackConfig, serde_yaml::Error> {
+        serde_yaml::from_str(config)
+    }
+
+    pub fn to_yaml(&self) -> Result<String, serde_yaml::Error> {
+        serde_yaml::to_string(&self)
+    }
+
+    fn save(&self) {
+        let yaml = self.to_yaml();
         match yaml {
-            Ok(yaml) => println!("{yaml}"),
+            Ok(yaml) => match &self.backing {
+                QuarterbackConfigBacking::Memory => {
+                    println!("{yaml}");
+                }
+                QuarterbackConfigBacking::YamlFile(file) => {}
+            },
             Err(e) => println!("Error saving: {e}"),
         }
     }
@@ -268,7 +286,7 @@ impl QuarterbackConfig {
                     println!("ERROR: A user name must be provided.");
                 }
             }
-            Some("save") => self.to_yaml(),
+            Some("save") => self.save(),
             Some("backing") => self.backing(&mut input_vec),
             Some("is_true") => {
                 println!("{:?}", QuarterbackConfig::is_true(input_vec.next()));
@@ -298,7 +316,7 @@ enum QuarterbackMode {
 }
 
 impl QuarterbackMode {
-    fn configurator() {
+    fn configurator(config: &str) {
         println!("Quarterback Configurator:");
         println!();
 
@@ -310,9 +328,9 @@ impl QuarterbackMode {
         let _ = repl(&mut eval);
     }
 
-    fn operate(self) {
+    fn operate(self, config: String) {
         match self {
-            QuarterbackMode::Config => QuarterbackMode::configurator(),
+            QuarterbackMode::Config => QuarterbackMode::configurator(&config),
             QuarterbackMode::Daemon => println!("not yet implemented"),
         }
     }
@@ -322,10 +340,12 @@ impl QuarterbackMode {
 struct Args {
     #[clap(default_value = "config")]
     mode: QuarterbackMode,
+    #[arg(short, long, default_value = "./qbconfig.yml")]
+    config: String,
 }
 
 fn main() {
     let args = Args::parse();
 
-    QuarterbackMode::operate(args.mode);
+    QuarterbackMode::operate(args.mode, args.config);
 }
