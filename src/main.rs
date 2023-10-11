@@ -172,9 +172,29 @@ impl QuarterbackConfig {
         let backing = iter.next();
         if let Some(backing) = backing {
             self.backing = QuarterbackConfigBacking::from_str(backing);
+            match &mut self.backing {
+                QuarterbackConfigBacking::Memory => {
+                    println!("WARNING: Memory should be used for testing only. Configuration is not persisted to disk. `save` command will output to stdout.");
+                }
+                QuarterbackConfigBacking::YamlFile(config) => {
+                    let path = iter.next();
+                    if let Some(path) = path {
+                        config.set_path(path);
+                        println!("Path to config: {}", config.config_file_path);
+                    } else {
+                        config.set_path("/root/qbconfig.yml");
+                        println!("Using default path: {}", config.config_file_path);
+                    }
+                }
+            }
             println!("Backing Set: {:?}", self.backing);
         } else {
-            println!("ERROR: Missing backing type. Allowed backings: memory, yaml");
+            println!("Current Backing: {:?}", self.backing);
+            println!();
+            println!("To set a new backing:");
+            println!("    backing set memory");
+            println!("    backing yaml /path/to/config.yml <-- defaults to /root/qbconfig.yml if a path is not provided.");
+            //println!("ERROR: Missing backing type. Allowed backings: memory, yaml");
         }
     }
 
