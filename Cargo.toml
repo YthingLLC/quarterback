@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 argon2 = { version = "0.5.2" }
+clap = { version = "4.4.6", features = ["derive"] }
 getrandom = "0.2.10"
 indoc = "2.0.4"
 rand_core = "0.6.4"

@@ -6,6 +6,7 @@ use argon2::{
     password_hash::{PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
+use clap::{Parser, ValueEnum};
 use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
 use simple_repl::{repl, EvalResult};
@@ -208,14 +209,41 @@ impl QuarterbackConfig {
     }
 }
 
+#[derive(Debug, Copy, Clone, ValueEnum)]
+enum QuarterbackMode {
+    Config,
+    Daemon,
+}
+
+impl QuarterbackMode {
+    fn configurator() {
+        println!("Quarterback Configurator:");
+        println!();
+
+        //hash_password(Uuid::new_v4().to_string().as_str());
+
+        //let password_hash = argon2.hash
+        let mut conf = QuarterbackConfig::new();
+        let mut eval = |input: &str| -> Result<EvalResult<()>, ()> { conf.eval(input) };
+        let _ = repl(&mut eval);
+    }
+
+    fn operate(&self) {
+        match *self {
+            QuarterbackMode::Config => QuarterbackMode::configurator(),
+            QuarterbackMode::Daemon => println!("not yet implemented"),
+        }
+    }
+}
+#[derive(Debug, Parser)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    #[clap(default_value = "config")]
+    mode: QuarterbackMode,
+}
+
 fn main() {
-    println!("Quarterback Configurator:");
-    println!();
+    let args = Args::parse();
 
-    //hash_password(Uuid::new_v4().to_string().as_str());
-
-    //let password_hash = argon2.hash
-    let mut conf = QuarterbackConfig::new();
-    let mut eval = |input: &str| -> Result<EvalResult<()>, ()> { conf.eval(input) };
-    let _ = repl(&mut eval);
+    QuarterbackMode::operate(&args.mode);
 }
