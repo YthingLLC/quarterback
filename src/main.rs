@@ -12,6 +12,14 @@ use serde::{Deserialize, Serialize};
 use simple_repl::{repl, EvalResult};
 use uuid::Uuid;
 
+macro_rules! print_if {
+    ($should_print:expr, $($arg:tt)*) => {
+        if $should_print {
+            println!($($arg)*);
+        }
+    }
+}
+
 //this should always contain a valid argon2 hash
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 struct PasswordString(String);
@@ -44,7 +52,47 @@ struct QuarterbackAction {
 struct QuarterbackActions {}
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
+enum QuarterbackConfigBacking {
+    Memory,
+    YamlFile(YamlFileConfig),
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+struct YamlFileConfig {
+    config_file_path: String,
+}
+
+impl Default for YamlFileConfig {
+    fn default() -> Self {
+        YamlFileConfig::new()
+    }
+}
+
+impl YamlFileConfig {
+    fn new() -> Self {
+        YamlFileConfig {
+            config_file_path: String::new(),
+        }
+    }
+
+    fn set_path(&mut self, path: &str) {
+        self.config_file_path = path.to_string();
+    }
+}
+
+impl QuarterbackConfigBacking {
+    fn from_str(s: &str) -> QuarterbackConfigBacking {
+        match s {
+            "memory" | "m" => QuarterbackConfigBacking::Memory,
+            "yaml" | "yml" => QuarterbackConfigBacking::YamlFile(YamlFileConfig::new()),
+            _ => QuarterbackConfigBacking::Memory,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 struct QuarterbackConfig {
+    backing: QuarterbackConfigBacking,
     users: HashMap<Uuid, QuarterbackUser>,
     roles: HashMap<Uuid, QuarterbackRole>,
     actions: HashMap<Uuid, QuarterbackAction>,
@@ -61,17 +109,10 @@ impl Default for QuarterbackConfig {
     }
 }
 
-macro_rules! print_if {
-    ($should_print:expr, $($arg:tt)*) => {
-        if $should_print {
-            println!($($arg)*);
-        }
-    }
-}
-
 impl QuarterbackConfig {
     pub fn new() -> QuarterbackConfig {
         QuarterbackConfig {
+            backing: QuarterbackConfigBacking::Memory,
             users: HashMap::new(),
             roles: HashMap::new(),
             actions: HashMap::new(),
@@ -124,6 +165,16 @@ impl QuarterbackConfig {
             Err(e) => {
                 println!("Error creating user: {e:?}");
             }
+        }
+    }
+
+    fn backing(&mut self, iter: &mut core::str::Split<'_, char>) {
+        let backing = iter.next();
+        if let Some(backing) = backing {
+            self.backing = QuarterbackConfigBacking::from_str(backing);
+            println!("Backing Set: {:?}", self.backing);
+        } else {
+            println!("ERROR: Missing backing type. Allowed backings: memory, yaml");
         }
     }
 
@@ -190,6 +241,7 @@ impl QuarterbackConfig {
                     println!("ERROR: A user name must be provided.");
                 }
             }
+            Some("backing") => self.backing(&mut input_vec),
             Some("is_true") => {
                 println!("{:?}", QuarterbackConfig::is_true(input_vec.next()));
             }
@@ -213,6 +265,8 @@ impl QuarterbackConfig {
 enum QuarterbackMode {
     Config,
     Daemon,
+    //TODO: Add eval mode
+    //should operate as configurator, but eval only one line
 }
 
 impl QuarterbackMode {
@@ -228,8 +282,8 @@ impl QuarterbackMode {
         let _ = repl(&mut eval);
     }
 
-    fn operate(&self) {
-        match *self {
+    fn operate(self) {
+        match self {
             QuarterbackMode::Config => QuarterbackMode::configurator(),
             QuarterbackMode::Daemon => println!("not yet implemented"),
         }
@@ -245,5 +299,5 @@ struct Args {
 fn main() {
     let args = Args::parse();
 
-    QuarterbackMode::operate(&args.mode);
+    QuarterbackMode::operate(args.mode);
 }
