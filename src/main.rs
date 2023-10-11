@@ -20,10 +20,10 @@ struct QuarterbackUser {
     user_id: Uuid,
     user_name: String,
     user_key: PasswordString,
+    //If true this user can do anything with no restrictions
+    //i.e. roles are not enforced
+    super_user: bool,
 }
-
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-struct QuarterbackUsers {}
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 struct QuarterbackRole {
@@ -31,9 +31,6 @@ struct QuarterbackRole {
     role_name: String,
     allowed_actions: HashSet<Uuid>,
 }
-
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-struct QuarterbackRoles {}
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 struct QuarterbackAction {
@@ -63,6 +60,14 @@ impl Default for QuarterbackConfig {
     }
 }
 
+macro_rules! print_if {
+    ($should_print:expr, $($arg:tt)*) => {
+        if $should_print {
+            println!($($arg)*);
+        }
+    }
+}
+
 impl QuarterbackConfig {
     pub fn new() -> QuarterbackConfig {
         QuarterbackConfig {
@@ -73,19 +78,34 @@ impl QuarterbackConfig {
     }
 
     fn print_users(&self) {
+        if self.users.is_empty() {
+            println!("NO USERS DEFINED");
+            return;
+        }
         println!("Users");
         println!();
-        println!("{:?}", self.users);
+        println!("{:<20} {:<40} {}", "Name", "ID", "Super User");
+        for user in self.users.values() {
+            println!(
+                "{:<20} {:<40} {:?}",
+                user.user_name,
+                user.user_id.to_string(),
+                user.super_user
+            );
+        }
     }
 
-    fn add_user(&mut self, name: &str) {
+    fn add_user(&mut self, name: &str, super_user: bool) {
         let user_id = Uuid::new_v4();
         let user_name = name.to_string();
         let key = Uuid::new_v4().to_string();
         println!("User Config:");
-        println!("User ID:   {user_id}");
-        println!("User Name: {user_name}");
-        println!("User Key:  {key}");
+        println!("ID: {user_id}");
+        println!("Name: {user_name}");
+        println!("Key: {key} -- SAVE THIS KEY. IT WILL NEVER BE DISPLAYED AGAIN.");
+        if super_user {
+            println!("Super User: true");
+        }
 
         let key = QuarterbackConfig::hash(&key);
         match key {
@@ -96,6 +116,7 @@ impl QuarterbackConfig {
                         user_id,
                         user_name,
                         user_key,
+                        super_user,
                     },
                 );
             }
@@ -106,10 +127,17 @@ impl QuarterbackConfig {
     }
 
     fn hash(password: &str) -> Result<PasswordString, QuarterbackError> {
+        QuarterbackConfig::hash_with_print(password, false)
+    }
+
+    fn hash_with_print(password: &str, print: bool) -> Result<PasswordString, QuarterbackError> {
         let mut password: String = password.to_string();
         if password.is_empty() {
             password = Uuid::new_v4().to_string();
-            println!("No password provided, generating a new UUID as password: {password}")
+            print_if!(
+                print,
+                "No password provided, generating a new UUID as password: {password}",
+            );
         } else {
             //println!("Input: {password}");
         }
@@ -122,17 +150,24 @@ impl QuarterbackConfig {
         match password_hash {
             Ok(x) => {
                 let password_string = x.to_string();
-                println!("Hash: {password_string:?}");
+                print_if!(print, "Hash: {password_string:?}");
 
                 let password_check = Argon2::default().verify_password(password, &x);
 
-                println!("Check: {password_check:?}");
+                print_if!(print, "Check: {password_check:?}");
                 Ok(PasswordString(password_string))
             }
             Err(e) => {
-                println!("Password hashing failed: {e}");
+                print_if!(print, "Password hashing failed: {e}");
                 Err(QuarterbackError::HashError(e))
             }
+        }
+    }
+
+    fn is_true(input: Option<&str>) -> bool {
+        match input {
+            Some("1") | Some("true") => true,
+            Some(_) | None => false,
         }
     }
 
@@ -141,19 +176,27 @@ impl QuarterbackConfig {
 
         let cmd = input_vec.next();
 
+        //TODO: Make this not so ugly, i.e. break out all of the arms into their own fn
         match cmd {
             Some("version") | Some("v") => println!("Version: {}", env!("CARGO_PKG_VERSION")),
             Some("users") | Some("u") => self.print_users(),
             Some("adduser") => {
                 let name = input_vec.next();
+                let super_user = QuarterbackConfig::is_true(input_vec.next());
                 if let Some(name) = name {
-                    self.add_user(&name);
+                    self.add_user(&name, super_user);
                 } else {
                     println!("ERROR: A user name must be provided.");
                 }
             }
+            Some("is_true") => {
+                println!("{:?}", QuarterbackConfig::is_true(input_vec.next()));
+            }
             Some("hash") => {
-                let _ = QuarterbackConfig::hash(input_vec.next().unwrap_or(""));
+                let _ = QuarterbackConfig::hash_with_print(input_vec.next().unwrap_or(""), true);
+            }
+            Some("exit") | Some("quit") => {
+                return Ok(EvalResult::ExitRepl);
             }
             Some(x) => println!("Unknown command: {x}"),
             None => {}
