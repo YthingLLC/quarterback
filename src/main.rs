@@ -26,6 +26,30 @@ macro_rules! print_if {
     }
 }
 
+macro_rules! parseuuid {
+    ($uuid_str:expr, $err:literal) => {
+        match Uuid::try_parse($uuid_str) {
+            Ok(uuid) => uuid,
+            Err(e) => {
+                println!("Unable to parse {}: {e}", $err);
+                return;
+            }
+        }
+    };
+}
+
+macro_rules! getusermut {
+    ($self:ident, $uuid:expr) => {
+        match $self.users.get_mut($uuid) {
+            None => {
+                println!("User {} not found.", $uuid.to_string());
+                return;
+            }
+            Some(user) => user,
+        }
+    };
+}
+
 //this should always contain a valid argon2 hash
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 struct PasswordString(String);
@@ -211,6 +235,20 @@ impl QuarterbackConfig {
         }
     }
 
+    fn reset_user_key(&mut self, userid: &str, key: &str) {
+        let uuid = parseuuid!(userid, "user id");
+
+        let user = getusermut!(self, &uuid);
+
+        match QuarterbackConfig::hash(&key) {
+            Err(e) => println!("Password hashing failed: {e:?}"),
+            Ok(key) => {
+                println!("User key updated");
+                user.user_key = key;
+            }
+        }
+    }
+
     fn backing(&mut self, iter: &mut core::str::Split<'_, char>) {
         let backing = iter.next();
         if let Some(backing) = backing {
@@ -337,6 +375,9 @@ impl QuarterbackConfig {
                or resetuser             if a key is provided, it will be set to the provided key
                                         Example: resetuser [userid] [userkey (default: new uuid)]
 
+            checkuserkey            check if a key is valid for a user
+                                        Example: checkuserkey [userid] [userkey]
+
             superuser               set or unset the super user flag for a specific user
                                         Example: superuser [userid] [super user flag (default: false)]
 
@@ -415,7 +456,22 @@ impl QuarterbackConfig {
                     println!("ERROR: A user name must be provided.");
                 }
             }
-            Some("resetuserkey") | Some("resetuser") => {}
+            Some("resetuserkey") | Some("resetuser") => {
+                let user = input_vec.next();
+                let key = input_vec.next();
+
+                if let (Some(user), Some(key)) = (user, key) {
+                    self.reset_user_key(user, key);
+                } else if let (Some(user), None) = (user, key) {
+                    let key = Uuid::new_v4().to_string();
+                    println!("Generating new key: {key} --- SAVE THIS KEY - IT WILL NEVER BE DISPLAYED AGAIN!");
+                    self.reset_user_key(user, &key);
+                } else {
+                    println!("ERROR: A userid and key must be provided!");
+                    println!("    Example: resetuserkey [userid] [key: default(new Uuid)]");
+                }
+            }
+            Some("checkuserkey") => {}
             Some("addrole") => {}
             Some("addaction") => {}
             Some("save") => self.save(),
