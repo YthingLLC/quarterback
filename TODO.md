@@ -1,0 +1,26 @@
+[Command]               [Status]
+help                    done 
+version                 done
+backing                 done
+users                   done - maybe change output?
+adduser                 done
+resetuserkey            TODO
+   or resetuser         TODO
+superuser               TODO
+username                TODO
+addrole                 TODO
+clonerole               TODO
+addaction               TODO
+addroleaction           TODO
+addroleuser             TODO
+delaction               TODO
+delroleaction           TODO
+delroleuser             TODO
+deluser                 TODO
+save                    TODO - partial
+exit                    done
+is_true                 done
+hash                    done
+show_map                TODO
+                        
+
