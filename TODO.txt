@@ -24,3 +24,11 @@ hash                    done
 show_map                TODO
                         
 
+
+daemon mode
+action executor
+
+reporting? smtp? notifications? webhooks?
+
+
+refactor the whole damn thing so it's not a single giant file?
