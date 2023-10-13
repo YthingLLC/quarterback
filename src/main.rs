@@ -12,7 +12,9 @@ use serde::{Deserialize, Serialize};
 use simple_repl::{repl, EvalResult};
 use std::fs::File;
 use std::io::prelude::*;
-use std::path::Path;
+//maybe I will use this if I ever care about supporting Windows
+//use std::path::Path;
+use indoc::printdoc;
 use std::time::Duration;
 use uuid::Uuid;
 
@@ -41,6 +43,7 @@ struct QuarterbackUser {
 struct QuarterbackRole {
     role_name: String,
     allowed_actions: HashSet<Uuid>,
+    allowed_users: HashSet<Uuid>,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -51,8 +54,23 @@ struct QuarterbackAction {
     cooldown: Duration,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-struct QuarterbackActions {}
+//TODO: For Daemon mode
+#[derive(Debug)]
+struct QuarterbackActionUsers {
+    //<Action, HashSet<User>>
+    //TODO: Convert all Uuid typerefs to struct WhatKindIsIt(Uuid)
+    //at runtime map all actions to their allowed users
+    //iterate through all roles by action uuid
+    //insert action uuid, and the set of allowed users
+    //appending to the set of allowed users
+    map: HashMap<Uuid, HashSet<Uuid>>,
+}
+
+impl QuarterbackUser {
+    fn check_key(&self, key: &str) -> bool {
+        todo!("implement check_key");
+    }
+}
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 enum QuarterbackConfigBacking {
@@ -217,7 +235,7 @@ impl QuarterbackConfig {
             println!("Current Backing: {:?}", self.backing);
             println!();
             println!("To set a new backing:");
-            println!("    backing set memory");
+            println!("    backing memory");
             println!("    backing yaml /path/to/config.yml <-- defaults to /root/qbconfig.yml if a path is not provided.");
             //println!("ERROR: Missing backing type. Allowed backings: memory, yaml");
         }
@@ -268,6 +286,117 @@ impl QuarterbackConfig {
         }
     }
 
+    fn help() {
+        printdoc! {"
+            QuarterbackConfigurator Help
+
+            This is the interactive configurator for Quarterback. The goal of this configurator
+            is to simplify the process of setting up or making changes to the qbconfig.yml file
+
+            Commands are processed interactively. Changes are not saved until the `save` command
+            is used to save the current configuration in memory. 
+
+            By default, the configuration is only saved in memory. A configuration backing must
+            be set, with the appropriate configuration for that backing, for the configuration
+            to persist. Currently 'yaml' is the only backing for configuration. Future versions
+            may include additional configuration backings.
+
+            The first thing that should be done on a new configuration is the `backing` command.
+            This command provides some additional help text to assist with configuration.
+
+            All configuration for Quarterback can be completed interactively, here's a brief
+            overview of all of the commands available in the configurator environment:
+
+            [Command]               [Description]
+            help                    display this help text
+            version                 display the version of Quarterback
+            
+            backing                 set the configuration backing persistence
+
+            users                   display the list of currently configured 'users'
+                                        user names are not unique, and can be reused
+                                        when referring to users in other commands
+                                        reference the user by their id, not name
+
+            adduser                 add a user with the following syntax:
+                                        adduser [username] [super user flag (default: false)]
+                                        Example: adduser david 1
+                                            Creates a user `david` that is a super user.
+                                        Example: adduser ltorv true
+                                            Creates a user `ltorv` that is a super user.
+                                        Example: adduser swoz
+                                            Creates a user `swoz` that is a super user.
+
+                                        See `users` command, user names are not unique.
+
+                                        !!!SUPER USERS CAN RUN ANY ACTION!!!
+                                          !!!NO ROLE CHECKING PERFORMED!!!
+                                        A 'key' is generated that is used to authenticate the user
+
+            resetuserkey            reset the userkey for a specific userid
+               or resetuser             if a key is provided, it will be set to the provided key
+                                        Example: resetuser [userid] [userkey (default: new uuid)]
+
+            superuser               set or unset the super user flag for a specific user
+                                        Example: superuser [userid] [super user flag (default: false)]
+
+            username                set a new name for a userid
+                                        Example: username [userid] [name]
+                                        See `users` command, user names are not unique.
+
+
+            addrole                 add a new role
+                                        Example: addrole [rolename]
+                                        Note: by default, roles are assigned no users or actions
+
+            clonerole               clone a role, and all users and actions assigned to it
+                                        Example: clonerole [roleid] 
+
+
+            addaction               add a new action
+                                        Example: addaction [command] [args...]
+
+            addroleaction           add an action to a role
+                                        Example: addroleaction [roleid] [actionid]
+
+            addroleuser             add a user to a role
+                                        Example: addroleuser [roleid] [userid]
+                                        
+
+            delaction               delete an action
+                                        Example: delaction [actionid]
+
+            delroleaction           delete an action from a role
+                                        Example: delroleaction [roleid] [actionid]
+
+            delroleuser             delete a user from a role
+                                        Example: delroleuser [roleid] [userid]
+
+            deluser                 delete a user
+                                        Example: deluser [userid]
+
+            save                    save the configuration
+                                        use `backing` to see where the configuration will be saved!
+
+            exit                    exit the configurator, remember to save first!
+
+
+            The following commands are included for testing only. They may be removed at any time:
+
+            [Command]               [Description]
+            is_true                 outputs whether the following 'word' evaluates to 'true'
+                                        used in other commands to determine flag is true/false
+
+            hash                    hash the next 'word' with argon2id and output the result
+                                        used in commands that generate 'keys' to prevent plain
+                                        text secrets in the backing stores
+
+            show_map                compute the map of actions and their allowed users
+                                        printing the map to stdout
+
+            "}
+    }
+
     fn eval(&mut self, input: &str) -> Result<EvalResult<()>, ()> {
         let mut input_vec = input.trim_end().split(' ');
 
@@ -286,6 +415,9 @@ impl QuarterbackConfig {
                     println!("ERROR: A user name must be provided.");
                 }
             }
+            Some("resetuserkey") | Some("resetuser") => {}
+            Some("addrole") => {}
+            Some("addaction") => {}
             Some("save") => self.save(),
             Some("backing") => self.backing(&mut input_vec),
             Some("is_true") => {
@@ -294,6 +426,7 @@ impl QuarterbackConfig {
             Some("hash") => {
                 let _ = QuarterbackConfig::hash_with_print(input_vec.next().unwrap_or(""), true);
             }
+            Some("help") => QuarterbackConfig::help(),
             Some("exit") | Some("quit") => {
                 return Ok(EvalResult::ExitRepl);
             }
@@ -320,10 +453,33 @@ impl QuarterbackMode {
         println!("Quarterback Configurator:");
         println!();
 
-        //hash_password(Uuid::new_v4().to_string().as_str());
+        let mut conf: QuarterbackConfig;
 
-        //let password_hash = argon2.hash
-        let mut conf = QuarterbackConfig::new();
+        if config.is_empty() {
+            conf = QuarterbackConfig::new();
+            println!("No configuration file provided. Starting in memory mode. Remember to save your config!");
+            println!("    hint: use command `backing` for help!");
+        } else {
+            let mut file = File::open(config);
+            match &mut file {
+                Err(e) => {
+                    println!("Failed to load file: {config} - {e}");
+                    println!("Starting in memory mode, remember to save your config!");
+                    println!("    hint: use command `backing` for help!");
+                    conf = QuarterbackConfig::new();
+                }
+                Ok(file) => {
+                    let mut conf_string = String::new();
+                    let _ = file.read_to_string(&mut conf_string);
+                    let yaml_config = QuarterbackConfig::from_yaml(&conf_string);
+                    match yaml_config {
+                        Err(e) => panic!("Failed to load yaml: {e}"),
+                        Ok(yaml_config) => conf = yaml_config,
+                    }
+                }
+            }
+        }
+
         let mut eval = |input: &str| -> Result<EvalResult<()>, ()> { conf.eval(input) };
         let _ = repl(&mut eval);
     }
@@ -340,7 +496,7 @@ impl QuarterbackMode {
 struct Args {
     #[clap(default_value = "config")]
     mode: QuarterbackMode,
-    #[arg(short, long, default_value = "./qbconfig.yml")]
+    #[arg(short, long, default_value = "")]
     config: String,
 }
 
