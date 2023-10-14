@@ -63,6 +63,30 @@ macro_rules! getuser {
     };
 }
 
+macro_rules! getactionmut {
+    ($self:ident, $uuid:expr) => {
+        match $self.actions.get_mut($uuid) {
+            None => {
+                println!("Action {} not found", $uuid.to_string());
+                return;
+            }
+            Some(action) => action,
+        }
+    };
+}
+
+macro_rules! getaction {
+    ($self:ident, $uuid:expr) => {
+        match $self.actions.get($uuid) {
+            None => {
+                println!("Action {} not found", $uuid.to_string());
+                return;
+            }
+            Some(action) => action,
+        }
+    };
+}
+
 //this should always contain a valid argon2 hash
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 struct PasswordString(String);
@@ -377,6 +401,18 @@ impl QuarterbackConfig {
         }
     }
 
+    fn set_action_name(&mut self, action: &str, name: &str) {
+        let uuid = parseuuid!(action, "action id");
+
+        let action = getactionmut!(self, &uuid);
+
+        let orig_name = action.name.clone();
+
+        action.name = name.to_string();
+
+        println!("Action renamed {} -> {}", orig_name, action.name);
+    }
+
     fn backing(&mut self, iter: &mut core::str::Split<'_, char>) {
         let backing = iter.next();
         if let Some(backing) = backing {
@@ -682,6 +718,17 @@ impl QuarterbackConfig {
                 } else {
                     println!("ERROR: Requires a name, timeout, cooldown, path, and optional args!");
                     println!("    Example: addaction [name] [timeout (seconds)] [cooldown (seconds)] [path] [args (optional)...]");
+                }
+            }
+            Some("actionname") => {
+                let action = input_vec.next();
+                let name = input_vec.next();
+
+                if let (Some(action), Some(name)) = (action, name) {
+                    self.set_action_name(action, name);
+                } else {
+                    println!("ERROR: Requires an action id and a name!");
+                    println!("    Example: actionname [actionid] [name]");
                 }
             }
             Some("save") => self.save(),

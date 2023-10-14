@@ -13,7 +13,7 @@ addrole                 TODO
 clonerole               TODO
 addaction               done
 actions                 done
-actionname              TODO
+actionname              done 
 actiontimeout           TODO
 actioncooldown          TODO
 actionpath              TODO
