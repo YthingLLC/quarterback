@@ -12,6 +12,12 @@ username                done
 addrole                 TODO
 clonerole               TODO
 addaction               done
+actions                 done
+actionname              TODO
+actiontimeout           TODO
+actioncooldown          TODO
+actionpath              TODO
+actionargs              TODO
 addroleaction           TODO
 addroleuser             TODO
 delaction               TODO

@@ -525,8 +525,23 @@ impl QuarterbackConfig {
                                         action names are not unique
                                         when referring to actions in other commands use the action id
 
+            actionname              set a new name for an actionid
+                                        Example: actionanme [actionid] [name]
+
+            actiontimeout           set a new timeout for an actionid
+                                        Example: actiontimeout [actionid] [timeout]
+
+            actioncooldown          set a new cooldown for an actionid
+                                        Example: actioncooldown [actionid] [cooldown]
+
+            actionpath              set a new path for an actionid
+                                        Example: actionpath [actionid] [path]
+
+            actionargs              set new args for an actionid
+                                        Example: actionargs [actionid] [args]
+
             addaction               add a new action
-                                        Example: addaction [command] [args...]
+                                        Example: addaction [name] [cooldown (seconds)] [timeout (seconds)] [command] [args...]
 
             addroleaction           add an action to a role
                                         Example: addroleaction [roleid] [actionid]
