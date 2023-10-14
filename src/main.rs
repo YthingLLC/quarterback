@@ -1,21 +1,22 @@
 #![warn(clippy::all, clippy::unwrap_used, clippy::expect_used)]
 
 use std::collections::{HashMap, HashSet};
+use std::fs::File;
+use std::io::prelude::*;
+use std::str::FromStr;
+use std::time::Duration;
+//maybe I will use this if I ever care about supporting Windows
+//use std::path::Path;
 
 use argon2::{
     password_hash::{PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
 use clap::{Parser, ValueEnum};
+use indoc::printdoc;
 use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
 use simple_repl::{repl, EvalResult};
-use std::fs::File;
-use std::io::prelude::*;
-//maybe I will use this if I ever care about supporting Windows
-//use std::path::Path;
-use indoc::printdoc;
-use std::time::Duration;
 use uuid::Uuid;
 
 macro_rules! print_if {
@@ -84,6 +85,7 @@ struct QuarterbackRole {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 struct QuarterbackAction {
+    name: String,
     action_path: String,
     action_args: String,
     timeout: Duration,
@@ -317,6 +319,64 @@ impl QuarterbackConfig {
         println!("Username updated: {} -> {}", orig_name, user.user_name);
     }
 
+    fn add_role(&mut self, name: &str) {
+        let uuid = Uuid::new_v4();
+        self.roles.insert(
+            uuid,
+            QuarterbackRole {
+                role_name: name.to_string(),
+                allowed_actions: HashSet::new(),
+                allowed_users: HashSet::new(),
+            },
+        );
+    }
+
+    fn add_action(
+        &mut self,
+        name: &str,
+        timeout: u64,
+        cooldown: u64,
+        action_path: &str,
+        action_args: &str,
+    ) {
+        let uuid = Uuid::new_v4();
+        self.actions.insert(
+            uuid,
+            QuarterbackAction {
+                name: name.to_string(),
+                action_path: action_path.to_string(),
+                action_args: action_args.to_string(),
+                timeout: Duration::from_secs(timeout),
+                cooldown: Duration::from_secs(cooldown),
+            },
+        );
+
+        println!("Action {uuid} added");
+    }
+
+    //this doesn't really need &self, but it makes calling it easier
+    fn print_action(&self, uuid: &Uuid, action: &QuarterbackAction) {
+        println!(
+            "{:<40} {:<20} {:<10} {:<10}",
+            uuid.to_string(),
+            action.name,
+            action.timeout.as_secs(),
+            action.cooldown.as_secs()
+        );
+        println!("  - action_path: {}", action.action_path);
+        println!("  - action_args: {}", action.action_args);
+    }
+
+    fn print_actions(&self) {
+        println!(
+            "{:<40} {:<20} {:<10} {:<10}",
+            "ID", "Name", "Timeout", "Cooldown"
+        );
+        for (uuid, action) in &self.actions {
+            self.print_action(uuid, action);
+        }
+    }
+
     fn backing(&mut self, iter: &mut core::str::Split<'_, char>) {
         let backing = iter.next();
         if let Some(backing) = backing {
@@ -461,6 +521,9 @@ impl QuarterbackConfig {
             clonerole               clone a role, and all users and actions assigned to it
                                         Example: clonerole [roleid] 
 
+            actions                 display the list of configured actions
+                                        action names are not unique
+                                        when referring to actions in other commands use the action id
 
             addaction               add a new action
                                         Example: addaction [command] [args...]
@@ -573,7 +636,39 @@ impl QuarterbackConfig {
                 }
             }
             Some("addrole") => {}
-            Some("addaction") => {}
+            Some("actions") | Some("a") => self.print_actions(),
+            Some("addaction") => {
+                let name = input_vec.next();
+                let timeout = input_vec.next();
+                let cooldown = input_vec.next();
+                let action_path = input_vec.next();
+                let action_args: String = input_vec.map(|arg| arg.to_string() + " ").collect();
+                //why does adding .trim_end() to the above line require type annotations, but this
+                //doesn't?
+                //TODO: Figure this out
+                let action_args = action_args.trim_end();
+
+                //println!("name: {name:?}");
+                //println!("timeout: {timeout:?}");
+                //println!("cooldown: {cooldown:?}");
+                //println!("action_path: {action_path:?}");
+                //println!("action_args: {action_args:?}");
+
+                if let (Some(name), Some(timeout), Some(cooldown), Some(path)) =
+                    (name, timeout, cooldown, action_path)
+                {
+                    let timeout = u64::from_str(timeout);
+                    let cooldown = u64::from_str(cooldown);
+                    if let (Ok(timeout), Ok(cooldown)) = (timeout, cooldown) {
+                        self.add_action(name, timeout, cooldown, path, action_args);
+                    } else {
+                        println!("ERROR: Timeout and cooldown must be positive integers!");
+                    }
+                } else {
+                    println!("ERROR: Requires a name, timeout, cooldown, path, and optional args!");
+                    println!("    Example: addaction [name] [timeout (seconds)] [cooldown (seconds)] [path] [args (optional)...]");
+                }
+            }
             Some("save") => self.save(),
             Some("backing") => self.backing(&mut input_vec),
             Some("is_true") => {

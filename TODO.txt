@@ -11,7 +11,7 @@ superuser               done
 username                done
 addrole                 TODO
 clonerole               TODO
-addaction               TODO
+addaction               done
 addroleaction           TODO
 addroleuser             TODO
 delaction               TODO
