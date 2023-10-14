@@ -8,7 +8,7 @@ resetuserkey            done
    or resetuser         done
 checkuserkey            done
 superuser               done 
-username                TODO
+username                done
 addrole                 TODO
 clonerole               TODO
 addaction               TODO

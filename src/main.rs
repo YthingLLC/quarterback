@@ -305,6 +305,18 @@ impl QuarterbackConfig {
         );
     }
 
+    fn set_user_name(&mut self, userid: &str, name: &str) {
+        let uuid = parseuuid!(userid, "user id");
+
+        let user = getusermut!(self, &uuid);
+
+        let orig_name = user.user_name.clone();
+
+        user.user_name = name.to_string();
+
+        println!("Username updated: {} -> {}", orig_name, user.user_name);
+    }
+
     fn backing(&mut self, iter: &mut core::str::Split<'_, char>) {
         let backing = iter.next();
         if let Some(backing) = backing {
@@ -547,6 +559,17 @@ impl QuarterbackConfig {
                 } else {
                     println!("ERROR: A userid must be provided!");
                     println!("    Example: superuser [userid] [flag: default(false)]");
+                }
+            }
+            Some("username") => {
+                let user = input_vec.next();
+                let name = input_vec.next();
+
+                if let (Some(user), Some(name)) = (user, name) {
+                    self.set_user_name(user, name);
+                } else {
+                    println!("ERROR: A userid and name must be provided!");
+                    println!("    Example: username [userid] [name]");
                 }
             }
             Some("addrole") => {}
