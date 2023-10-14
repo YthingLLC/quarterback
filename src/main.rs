@@ -292,6 +292,19 @@ impl QuarterbackConfig {
         user.check_key_print(key, true);
     }
 
+    fn set_super_user(&mut self, userid: &str, flag: bool) {
+        let uuid = parseuuid!(userid, "user id");
+
+        let user = getusermut!(self, &uuid);
+
+        user.super_user = flag;
+
+        println!(
+            "User: {} [{}] Flag set: {:?}",
+            user.user_name, userid, user.super_user
+        );
+    }
+
     fn backing(&mut self, iter: &mut core::str::Split<'_, char>) {
         let backing = iter.next();
         if let Some(backing) = backing {
@@ -523,6 +536,17 @@ impl QuarterbackConfig {
                 } else {
                     println!("ERROR: A userid and key must be provided!");
                     println!("    Example: checkuserkey [userid] [key]");
+                }
+            }
+            Some("superuser") => {
+                let user = input_vec.next();
+                let flag = QuarterbackConfig::is_true(input_vec.next());
+
+                if let Some(user) = user {
+                    self.set_super_user(user, flag);
+                } else {
+                    println!("ERROR: A userid must be provided!");
+                    println!("    Example: superuser [userid] [flag: default(false)]");
                 }
             }
             Some("addrole") => {}
