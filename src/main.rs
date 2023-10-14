@@ -50,6 +50,18 @@ macro_rules! getusermut {
     };
 }
 
+macro_rules! getuser {
+    ($self:ident, $uuid:expr) => {
+        match $self.users.get($uuid) {
+            None => {
+                println!("User {} not found.", $uuid.to_string());
+                return;
+            }
+            Some(user) => user,
+        }
+    };
+}
+
 //this should always contain a valid argon2 hash
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 struct PasswordString(String);
@@ -92,7 +104,30 @@ struct QuarterbackActionUsers {
 
 impl QuarterbackUser {
     fn check_key(&self, key: &str) -> bool {
-        todo!("implement check_key");
+        self.check_key_print(key, false)
+    }
+    fn check_key_print(&self, key: &str, print: bool) -> bool {
+        let user_key = match argon2::PasswordHash::new(&self.user_key.0) {
+            Err(e) => {
+                print_if!(
+                    print,
+                    "ERROR: {e}; Invalid password string for user: {:?}",
+                    self.user_key
+                );
+                return false;
+            }
+            Ok(user_key) => user_key,
+        };
+        match Argon2::default().verify_password(key.as_bytes(), &user_key) {
+            Err(_) => {
+                print_if!(print, "Invalid key");
+                return false;
+            }
+            Ok(_) => {
+                print_if!(print, "Valid key");
+                return true;
+            }
+        }
     }
 }
 
@@ -247,6 +282,14 @@ impl QuarterbackConfig {
                 user.user_key = key;
             }
         }
+    }
+
+    fn check_user_key(&self, userid: &str, key: &str) {
+        let uuid = parseuuid!(userid, "user id");
+
+        let user = getuser!(self, &uuid);
+
+        user.check_key_print(key, true);
     }
 
     fn backing(&mut self, iter: &mut core::str::Split<'_, char>) {
@@ -471,7 +514,17 @@ impl QuarterbackConfig {
                     println!("    Example: resetuserkey [userid] [key: default(new Uuid)]");
                 }
             }
-            Some("checkuserkey") => {}
+            Some("checkuserkey") => {
+                let user = input_vec.next();
+                let key = input_vec.next();
+
+                if let (Some(user), Some(key)) = (user, key) {
+                    self.check_user_key(user, key);
+                } else {
+                    println!("ERROR: A userid and key must be provided!");
+                    println!("    Example: checkuserkey [userid] [key]");
+                }
+            }
             Some("addrole") => {}
             Some("addaction") => {}
             Some("save") => self.save(),

@@ -4,8 +4,9 @@ version                 done
 backing                 done
 users                   done - maybe change output?
 adduser                 done
-resetuserkey            TODO
-   or resetuser         TODO
+resetuserkey            done
+   or resetuser         done
+checkuserkey            done
 superuser               TODO
 username                TODO
 addrole                 TODO
