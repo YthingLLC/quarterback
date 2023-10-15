@@ -1001,7 +1001,22 @@ impl QuarterbackConfig {
                     println!("    Example: actionsignal [actionid] [signal]");
                 }
             }
-            Some("actionstdout") | Some("actionlog") => {}
+            Some("actionstdout") | Some("actionlog") => {
+                let action = input_vec.next();
+                let action_log = input_vec.next();
+
+                if let (Some(action), Some(action_log)) = (action, action_log) {
+                    //                                          yes, I know.
+                    //                                          TODO: Deuglify
+                    let action_log = QuarterbackConfig::is_true(Some(action_log));
+                    self.set_action_stdout(action, action_log);
+                } else {
+                    println!("ERROR: An action id and flag must be provided!");
+                    println!("    If true, log the action output into memory");
+                    println!("    false by default");
+                    println!("    Example: actionlog [actionid] [logging flag]");
+                }
+            }
             Some("save") => self.save(),
             Some("backing") => self.backing(&mut input_vec),
             Some("is_true") => {

@@ -24,7 +24,7 @@ actionpath              done
 actionargs              done 
 actioncmd               done 
 actionabortsignal       done
-actionstdout            TODO
+actionstdout            done 
 addroleaction           TODO
 addroleuser             TODO
 delaction               TODO
