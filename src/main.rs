@@ -397,7 +397,10 @@ impl QuarterbackConfig {
         let uuid = parseuuid!(actionid, "action id");
 
         let action = getaction!(self, &uuid);
-
+        println!(
+            "{:<40} {:<20} {:<10} {:<10}",
+            "ID", "Name", "Timeout", "Cooldown"
+        );
         self.print_action(&uuid, &action);
     }
 
@@ -410,8 +413,10 @@ impl QuarterbackConfig {
             action.timeout.as_secs(),
             action.cooldown.as_secs()
         );
-        println!("  - action_path: {}", action.action_path);
-        println!("  - action_args: {}", action.action_args);
+        println!("  -  action_path: {}", action.action_path);
+        println!("  -  action_args: {}", action.action_args);
+        println!("  - abort_signal: {}", action.signal);
+        println!("  -   stdout_log: {}", action.log_stdout);
     }
 
     fn print_actions(&self) {
