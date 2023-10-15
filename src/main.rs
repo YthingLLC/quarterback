@@ -707,7 +707,7 @@ impl QuarterbackConfig {
                                         Example: actioncmd [actionid] [path] [args...]
 
             actionabortsignal       set the abort signal to be sent to the process when abort is 
-                                        called on this action by default, signal 15 (SIGTERM) is 
+                or actionsignal         called on this action by default, signal 15 (SIGTERM) is 
                                         sent. signal 9 (SIGKILL) will end the action immediately.
                                         set this to 0 to disable the ability to 'abort' an action.
                                         This can be any signal you'd like. It is sent via:
@@ -715,7 +715,7 @@ impl QuarterbackConfig {
                                         Example: actionabortsignal [actionid] [signal]
 
             actionstdout            set stdout logging for an action. this is stored in memory.
-                                        set this to false to disable logging stdout to memory.
+                or actionlog            set this to false to disable logging stdout to memory.
                                         this does not persist across daemon reloads, and only 
                                         contains the stdout of the last/current run of the action.
                                         Example: actionstdout [actionid] [memory logging flag (default: false)]
@@ -980,6 +980,23 @@ impl QuarterbackConfig {
                     println!("    Example: actioncmd [actionid] [path] [args (optional)...]");
                 }
             }
+            Some("actionabortsignal") | Some("actionsignal") => {
+                let action = input_vec.next();
+                let action_signal = input_vec.next();
+
+                if let (Some(action), Some(action_signal)) = (action, action_signal) {
+                    if let Ok(action_signal) = u8::from_str(action_signal) {
+                        self.set_action_abort_signal(action, action_signal);
+                    } else {
+                        println!("ERROR: Signal must be an integer between 0-255");
+                        println!("    0 disables abort functionality");
+                    }
+                } else {
+                    println!("ERROR: An action id and signal must be provided!");
+                    println!("    Example: actionsignal [actionid] [signal]");
+                }
+            }
+            Some("actionstdout") | Some("actionlog") => {}
             Some("save") => self.save(),
             Some("backing") => self.backing(&mut input_vec),
             Some("is_true") => {
