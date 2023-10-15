@@ -249,6 +249,36 @@ impl QuarterbackConfig {
         }
     }
 
+    fn backing(&mut self, iter: &mut core::str::Split<'_, char>) {
+        let backing = iter.next();
+        if let Some(backing) = backing {
+            self.backing = QuarterbackConfigBacking::from_str(backing);
+            match &mut self.backing {
+                QuarterbackConfigBacking::Memory => {
+                    println!("WARNING: Memory should be used for testing only. Configuration is not persisted to disk. `save` command will output to stdout.");
+                }
+                QuarterbackConfigBacking::YamlFile(config) => {
+                    let path = iter.next();
+                    if let Some(path) = path {
+                        config.set_path(path);
+                        println!("Path to config: {}", config.config_file_path);
+                    } else {
+                        config.set_path("/root/qbconfig.yml");
+                        println!("Using default path: {}", config.config_file_path);
+                    }
+                }
+            }
+            println!("Backing Set: {:?}", self.backing);
+        } else {
+            println!("Current Backing: {:?}", self.backing);
+            println!();
+            println!("To set a new backing:");
+            println!("    backing memory");
+            println!("    backing yaml /path/to/config.yml <-- defaults to /root/qbconfig.yml if a path is not provided.");
+            //println!("ERROR: Missing backing type. Allowed backings: memory, yaml");
+        }
+    }
+
     fn print_user(&self, userid: &str) {
         let uuid = parseuuid!(userid, "user id");
 
@@ -530,36 +560,6 @@ impl QuarterbackConfig {
             "stdout logging updated {:?} -> {:?}",
             orig_stdout, action.log_stdout
         );
-    }
-
-    fn backing(&mut self, iter: &mut core::str::Split<'_, char>) {
-        let backing = iter.next();
-        if let Some(backing) = backing {
-            self.backing = QuarterbackConfigBacking::from_str(backing);
-            match &mut self.backing {
-                QuarterbackConfigBacking::Memory => {
-                    println!("WARNING: Memory should be used for testing only. Configuration is not persisted to disk. `save` command will output to stdout.");
-                }
-                QuarterbackConfigBacking::YamlFile(config) => {
-                    let path = iter.next();
-                    if let Some(path) = path {
-                        config.set_path(path);
-                        println!("Path to config: {}", config.config_file_path);
-                    } else {
-                        config.set_path("/root/qbconfig.yml");
-                        println!("Using default path: {}", config.config_file_path);
-                    }
-                }
-            }
-            println!("Backing Set: {:?}", self.backing);
-        } else {
-            println!("Current Backing: {:?}", self.backing);
-            println!();
-            println!("To set a new backing:");
-            println!("    backing memory");
-            println!("    backing yaml /path/to/config.yml <-- defaults to /root/qbconfig.yml if a path is not provided.");
-            //println!("ERROR: Missing backing type. Allowed backings: memory, yaml");
-        }
     }
 
     fn hash(password: &str) -> Result<PasswordString, QuarterbackError> {
