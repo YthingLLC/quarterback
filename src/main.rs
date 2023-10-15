@@ -436,6 +436,97 @@ impl QuarterbackConfig {
         println!("Action renamed {} -> {}", orig_name, action.name);
     }
 
+    fn set_action_timeout(&mut self, action: &str, timeout: u64) {
+        let uuid = parseuuid!(action, "action id");
+
+        let action = getactionmut!(self, &uuid);
+
+        let orig_timeout = action.timeout;
+
+        action.timeout = Duration::from_secs(timeout);
+
+        println!(
+            "Timeout updated {} -> {}",
+            orig_timeout.as_secs(),
+            action.timeout.as_secs()
+        );
+    }
+
+    fn set_action_cooldown(&mut self, action: &str, cooldown: u64) {
+        let uuid = parseuuid!(action, "action id");
+
+        let action = getactionmut!(self, &uuid);
+
+        let orig_cooldown = action.cooldown.as_secs();
+
+        action.cooldown = Duration::from_secs(cooldown);
+
+        println!(
+            "Cooldown updated {} -> {}",
+            orig_cooldown,
+            action.cooldown.as_secs()
+        );
+    }
+
+    fn set_action_path(&mut self, action: &str, path: &str) {
+        let uuid = parseuuid!(action, "action id");
+
+        let action = getactionmut!(self, &uuid);
+
+        let orig_path = action.action_path.clone();
+
+        action.action_path = path.to_string();
+
+        println!("Path updated {} -> {}", orig_path, action.action_path)
+    }
+
+    fn set_action_args(&mut self, action: &str, args: &str) {
+        let uuid = parseuuid!(action, "action id");
+
+        let action = getactionmut!(self, &uuid);
+
+        let orig_args = action.action_args.clone();
+
+        action.action_args = args.to_string();
+
+        println!("Args updated:");
+        println!("Original: {orig_args}");
+        println!("     New: {}", action.action_args);
+    }
+
+    fn set_action_cmd(&mut self, action: &str, path: &str, args: &str) {
+        self.set_action_path(action, path);
+        println!();
+        self.set_action_args(action, args);
+    }
+
+    fn set_action_abort_signal(&mut self, action: &str, signal: u8) {
+        let uuid = parseuuid!(action, "action id");
+
+        let action = getactionmut!(self, &uuid);
+
+        let orig_signal = action.signal;
+
+        action.signal = signal;
+
+        println!("Signal updated {} -> {}", orig_signal, action.signal);
+    }
+
+    fn set_action_stdout(&mut self, action: &str, log: bool) {
+        let uuid = parseuuid!(action, "action id");
+
+        let action = getactionmut!(self, &uuid);
+
+        let orig_stdout = action.log_stdout;
+
+        action.log_stdout = log;
+
+        println!(
+            "stdout logging updated {:?} -> {:?}",
+            orig_stdout, action.log_stdout
+        );
+    }
+
     fn backing(&mut self, iter: &mut core::str::Split<'_, char>) {
         let backing = iter.next();
         if let Some(backing) = backing {
@@ -819,11 +910,76 @@ impl QuarterbackConfig {
                     println!("    Example: actionname [actionid] [name]");
                 }
             }
-            Some("actiontimeout") => {}
-            Some("actioncooldown") => {}
-            Some("actionpath") => {}
-            Some("actionargs") => {}
-            Some("actioncmd") => {}
+            Some("actiontimeout") => {
+                let action = input_vec.next();
+                let timeout = input_vec.next();
+
+                if let (Some(action), Some(timeout)) = (action, timeout) {
+                    let timeout = u64::from_str(timeout);
+                    if let Ok(timeout) = timeout {
+                        self.set_action_timeout(action, timeout);
+                    } else {
+                        println!("ERROR: Timeout must be a positive integer");
+                    }
+                } else {
+                    println!("ERROR: Requires an action id and a timeout");
+                    println!("    Example: actiontimeout [actionid] [timeout]");
+                }
+            }
+            Some("actioncooldown") => {
+                let action = input_vec.next();
+                let cooldown = input_vec.next();
+
+                if let (Some(action), Some(cooldown)) = (action, cooldown) {
+                    let cooldown = u64::from_str(cooldown);
+                    if let Ok(cooldown) = cooldown {
+                        self.set_action_cooldown(action, cooldown);
+                    } else {
+                        println!("ERROR: Cooldown must be a positive integer");
+                    }
+                } else {
+                    println!("ERROR: Requires an action id and a cooldown");
+                    println!("    Example: actioncooldown [actionid] [cooldown]");
+                }
+            }
+            Some("actionpath") => {
+                let action = input_vec.next();
+                let path = input_vec.next();
+
+                if let (Some(action), Some(path)) = (action, path) {
+                    self.set_action_path(action, path);
+                } else {
+                    println!("ERROR: An action id and path must be provided!");
+                    println!("    Example: actionpath [actionid] [path]");
+                }
+            }
+            Some("actionargs") => {
+                let action = input_vec.next();
+                let action_args: String = input_vec.map(|arg| arg.to_string() + " ").collect();
+                //TODO: Figure this out, same reason as addaction
+                let action_args = action_args.trim_end();
+
+                if let Some(action) = action {
+                    self.set_action_args(action, action_args);
+                } else {
+                    println!("ERROR: An action id must be provided!");
+                    println!("    Example: actionargs [actionid] [args: (optional)...]");
+                }
+            }
+            Some("actioncmd") => {
+                let action = input_vec.next();
+                let action_path = input_vec.next();
+                let action_args: String = input_vec.map(|arg| arg.to_string() + " ").collect();
+                //TODO: Figure this out, same reason as addaction
+                let action_args = action_args.trim_end();
+
+                if let (Some(action), Some(action_path)) = (action, action_path) {
+                    self.set_action_cmd(action, action_path, action_args);
+                } else {
+                    println!("ERROR: An action id and path must be provided!");
+                    println!("    Example: actioncmd [actionid] [path] [args (optional)...]");
+                }
+            }
             Some("save") => self.save(),
             Some("backing") => self.backing(&mut input_vec),
             Some("is_true") => {
