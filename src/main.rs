@@ -249,6 +249,17 @@ impl QuarterbackConfig {
         }
     }
 
+    fn print_user(&self, userid: &str) {
+        let uuid = parseuuid!(userid, "user id");
+
+        let user = getuser!(self, &uuid);
+
+        println!("      User ID: {}", userid);
+        println!("    User Name: {}", user.user_name);
+        println!("User Key Hash: {}", user.user_key.0);
+        println!("   Super User: {:?}", user.super_user);
+    }
+
     fn print_users(&self) {
         if self.users.is_empty() {
             println!("NO USERS DEFINED");
@@ -382,6 +393,14 @@ impl QuarterbackConfig {
         println!("Action {uuid} added");
     }
 
+    fn print_action_by_uuid_str(&self, actionid: &str) {
+        let uuid = parseuuid!(actionid, "action id");
+
+        let action = getaction!(self, &uuid);
+
+        self.print_action(&uuid, &action);
+    }
+
     //this doesn't really need &self, but it makes calling it easier
     fn print_action(&self, uuid: &Uuid, action: &QuarterbackAction) {
         println!(
@@ -471,7 +490,7 @@ impl QuarterbackConfig {
         match password_hash {
             Ok(x) => {
                 let password_string = x.to_string();
-                print_if!(print, "Hash: {password_string:?}");
+                print_if!(print, "Hash: {password_string}");
 
                 let password_check = Argon2::default().verify_password(password, &x);
 
@@ -600,6 +619,8 @@ impl QuarterbackConfig {
                                         called on this action by default, signal 15 (SIGTERM) is 
                                         sent. signal 9 (SIGKILL) will end the action immediately.
                                         set this to 0 to disable the ability to 'abort' an action.
+                                        This can be any signal you'd like. It is sent via:
+                                            `kill --signal [signal]`
                                         Example: actionabortsignal [actionid] [signal]
 
             actionstdout            set stdout logging for an action. this is stored in memory.
@@ -609,7 +630,12 @@ impl QuarterbackConfig {
                                         Example: actionstdout [actionid] [memory logging flag (default: false)]
 
             addaction               add a new action
-                                        Example: addaction [name] [cooldown (seconds)] [timeout (seconds)] [command] [args...]
+                                        cooldown: how long before this action can be triggered again, in seconds.
+                                            0 means it can be triggered again immediately. You probably do not want this.
+                                        timeout: how long to wait for this action to execute, in seconds.
+                                            0 means that this action will never 'timeout' (i.e. it can run forever).
+                                            You probably do not want this. 
+                                        Example: addaction [name] [timeout (seconds)] [cooldown (seconds)] [command] [args...]
 
             addroleaction           add an action to a role
                                         Example: addroleaction [roleid] [actionid]
@@ -649,6 +675,11 @@ impl QuarterbackConfig {
             hash                    hash the next 'word' with argon2id and output the result
                                         used in commands that generate 'keys' to prevent plain
                                         text secrets in the backing stores
+                                        Note: a new salt is generated for every hash
+                                        You *will* receive different output on every run,
+                                        even from the same input.
+                                        If `Check: Ok(())` is displayed, the hash and the
+                                        verification succeeded.
 
             show_map                compute the map of actions and their allowed users
                                         printing the map to stdout
@@ -665,6 +696,16 @@ impl QuarterbackConfig {
         match cmd {
             Some("version") | Some("v") => println!("Version: {}", env!("CARGO_PKG_VERSION")),
             Some("users") | Some("u") => self.print_users(),
+            Some("user") => {
+                let user = input_vec.next();
+
+                if let Some(user) = user {
+                    self.print_user(user);
+                } else {
+                    println!("ERROR: A user id must be provided!");
+                    println!("    Example: user [userid]");
+                }
+            }
             Some("adduser") => {
                 let name = input_vec.next();
                 let super_user = QuarterbackConfig::is_true(input_vec.next());
@@ -672,6 +713,7 @@ impl QuarterbackConfig {
                     self.add_user(name, super_user);
                 } else {
                     println!("ERROR: A user name must be provided.");
+                    println!("    Example: adduser [name] [super user: (default false)]");
                 }
             }
             Some("resetuserkey") | Some("resetuser") | Some("userkey") => {
@@ -723,6 +765,16 @@ impl QuarterbackConfig {
                 }
             }
             Some("addrole") => {}
+            Some("action") => {
+                let action = input_vec.next();
+
+                if let Some(action) = action {
+                    self.print_action_by_uuid_str(action);
+                } else {
+                    println!("ERROR: An action id must be provided!");
+                    println!("    Example: action [actionid]");
+                }
+            }
             Some("actions") | Some("a") => self.print_actions(),
             Some("addaction") => {
                 let name = input_vec.next();

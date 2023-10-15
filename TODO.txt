@@ -3,7 +3,7 @@ help                    done
 version                 done
 backing                 done
 users                   done - maybe change output?
-user                    TODO
+user                    done
 adduser                 done
 resetuserkey            done
    or resetuser         done
@@ -16,7 +16,7 @@ role                    TODO
 roles                   TODO
 addaction               done
 actions                 done
-action                  TODO
+action                  done
 actionname              done 
 actiontimeout           TODO
 actioncooldown          TODO
