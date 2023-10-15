@@ -386,18 +386,6 @@ impl QuarterbackConfig {
         println!("Username updated: {} -> {}", orig_name, user.user_name);
     }
 
-    fn add_role(&mut self, name: &str) {
-        let uuid = Uuid::new_v4();
-        self.roles.insert(
-            uuid,
-            QuarterbackRole {
-                role_name: name.to_string(),
-                allowed_actions: HashSet::new(),
-                allowed_users: HashSet::new(),
-            },
-        );
-    }
-
     fn add_action(
         &mut self,
         name: &str,
@@ -559,6 +547,18 @@ impl QuarterbackConfig {
         println!(
             "stdout logging updated {:?} -> {:?}",
             orig_stdout, action.log_stdout
+        );
+    }
+
+    fn add_role(&mut self, name: &str) {
+        let uuid = Uuid::new_v4();
+        self.roles.insert(
+            uuid,
+            QuarterbackRole {
+                role_name: name.to_string(),
+                allowed_actions: HashSet::new(),
+                allowed_users: HashSet::new(),
+            },
         );
     }
 
