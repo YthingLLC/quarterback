@@ -87,6 +87,30 @@ macro_rules! getaction {
     };
 }
 
+macro_rules! getrolemut {
+    ($self:ident, $uuid:expr) => {
+        match $self.roles.get_mut($uuid) {
+            None => {
+                println!("Role {} not found", $uuid.to_string());
+                return;
+            }
+            Some(role) => role,
+        }
+    };
+}
+
+macro_rules! getrole {
+    ($self:ident, $uuid:expr) => {
+        match $self.roles.get($uuid) {
+            None => {
+                println!("Role {} not found", $uuid.to_string());
+                return;
+            }
+            Some(role) => role,
+        }
+    };
+}
+
 //this should always contain a valid argon2 hash
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 struct PasswordString(String);
@@ -561,6 +585,34 @@ impl QuarterbackConfig {
             },
         );
     }
+
+    fn clone_role(&mut self, roleid: &str) {}
+
+    fn print_role_by_uuid_string(&self, roleid: &str) {}
+
+    fn print_role(&self, uuid: &Uuid, role: &QuarterbackRole) {}
+
+    fn print_roles(&self) {}
+
+    fn add_role_action(&mut self, roleid: &str, actionid: &str) {}
+
+    fn add_role_user(&mut self, roleid: &str, userid: &str) {}
+
+    fn del_role_action(&mut self, roleid: &str, actionid: &str) {}
+
+    fn del_role_user(&mut self, roleid: &str, userid: &str) {}
+
+    fn del_action(&mut self, actionid: &str) {}
+
+    fn del_role(&mut self, roleid: &str) {}
+
+    fn del_user(&mut self, userid: &str) {}
+
+    pub fn compute_map(&self) -> QuarterbackActionUsers {
+        todo!("Not yet implemented");
+    }
+
+    fn print_maps(&self) {}
 
     fn hash(password: &str) -> Result<PasswordString, QuarterbackError> {
         QuarterbackConfig::hash_with_print(password, false)
