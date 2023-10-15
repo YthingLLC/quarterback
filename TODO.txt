@@ -23,7 +23,7 @@ actioncooldown          done
 actionpath              done 
 actionargs              done 
 actioncmd               done 
-actionabortsignal       TODO
+actionabortsignal       done
 actionstdout            TODO
 addroleaction           TODO
 addroleuser             TODO
