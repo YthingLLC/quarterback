@@ -114,6 +114,8 @@ struct QuarterbackAction {
     action_args: String,
     timeout: Duration,
     cooldown: Duration,
+    signal: u8,
+    log_stdout: bool,
 }
 
 //TODO: For Daemon mode
@@ -372,6 +374,8 @@ impl QuarterbackConfig {
                 action_args: action_args.to_string(),
                 timeout: Duration::from_secs(timeout),
                 cooldown: Duration::from_secs(cooldown),
+                signal: 15,
+                log_stdout: false,
             },
         );
 
@@ -515,6 +519,9 @@ impl QuarterbackConfig {
             
             backing                 set the configuration backing persistence
 
+            user                    display a specific user
+                                        Example: user [userid]
+
             users                   display the list of currently configured 'users'
                                         user names are not unique, and can be reused
                                         when referring to users in other commands
@@ -536,14 +543,14 @@ impl QuarterbackConfig {
                                         A 'key' is generated that is used to authenticate the user
 
             resetuserkey            reset the userkey for a specific userid
-               or resetuser             if a key is provided, it will be set to the provided key
-                                        Example: resetuser [userid] [userkey (default: new uuid)]
+                or resetuser            if a key is provided, it will be set to the provided key
+                or userkey              Example: resetuser [userid] [userkey (default: new uuid)]
 
             checkuserkey            check if a key is valid for a user
-                                        Example: checkuserkey [userid] [userkey]
+                or userkeycheck         Example: checkuserkey [userid] [userkey]
 
             superuser               set or unset the super user flag for a specific user
-                                        Example: superuser [userid] [super user flag (default: false)]
+                or usersuper            Example: superuser [userid] [super user flag (default: false)]
 
             username                set a new name for a userid
                                         Example: username [userid] [name]
@@ -555,7 +562,17 @@ impl QuarterbackConfig {
                                         Note: by default, roles are assigned no users or actions
 
             clonerole               clone a role, and all users and actions assigned to it
-                                        Example: clonerole [roleid] 
+                or roleclone            Example: clonerole [roleid]
+
+            role                    display a specific role
+                                        Example: role [roleid]
+
+            roles                   display the list of configured roles
+                                        role names are not unique
+                                        when referring to roles in other commands use the role id
+
+            action                  display a specific action
+                                        Example: action [actionid]
 
             actions                 display the list of configured actions
                                         action names are not unique
@@ -575,6 +592,21 @@ impl QuarterbackConfig {
 
             actionargs              set new args for an actionid
                                         Example: actionargs [actionid] [args]
+
+            actioncmd               set a new path and args for an actionid (i.e. redefine command)
+                                        Example: actioncmd [actionid] [path] [args...]
+
+            actionabortsignal       set the abort signal to be sent to the process when abort is 
+                                        called on this action by default, signal 15 (SIGTERM) is 
+                                        sent. signal 9 (SIGKILL) will end the action immediately.
+                                        set this to 0 to disable the ability to 'abort' an action.
+                                        Example: actionabortsignal [actionid] [signal]
+
+            actionstdout            set stdout logging for an action. this is stored in memory.
+                                        set this to false to disable logging stdout to memory.
+                                        this does not persist across daemon reloads, and only 
+                                        contains the stdout of the last/current run of the action.
+                                        Example: actionstdout [actionid] [memory logging flag (default: false)]
 
             addaction               add a new action
                                         Example: addaction [name] [cooldown (seconds)] [timeout (seconds)] [command] [args...]
@@ -602,6 +634,10 @@ impl QuarterbackConfig {
                                         use `backing` to see where the configuration will be saved!
 
             exit                    exit the configurator, remember to save first!
+                or quit
+            
+            exit!
+                or quit!            exit the configurtor, without save checking, just like vim.
 
 
             The following commands are included for testing only. They may be removed at any time:
@@ -638,7 +674,7 @@ impl QuarterbackConfig {
                     println!("ERROR: A user name must be provided.");
                 }
             }
-            Some("resetuserkey") | Some("resetuser") => {
+            Some("resetuserkey") | Some("resetuser") | Some("userkey") => {
                 let user = input_vec.next();
                 let key = input_vec.next();
 
@@ -653,7 +689,7 @@ impl QuarterbackConfig {
                     println!("    Example: resetuserkey [userid] [key: default(new Uuid)]");
                 }
             }
-            Some("checkuserkey") => {
+            Some("checkuserkey") | Some("userkeycheck") => {
                 let user = input_vec.next();
                 let key = input_vec.next();
 
@@ -664,7 +700,7 @@ impl QuarterbackConfig {
                     println!("    Example: checkuserkey [userid] [key]");
                 }
             }
-            Some("superuser") => {
+            Some("superuser") | Some("usersuper") => {
                 let user = input_vec.next();
                 let flag = QuarterbackConfig::is_true(input_vec.next());
 
@@ -731,6 +767,11 @@ impl QuarterbackConfig {
                     println!("    Example: actionname [actionid] [name]");
                 }
             }
+            Some("actiontimeout") => {}
+            Some("actioncooldown") => {}
+            Some("actionpath") => {}
+            Some("actionargs") => {}
+            Some("actioncmd") => {}
             Some("save") => self.save(),
             Some("backing") => self.backing(&mut input_vec),
             Some("is_true") => {
@@ -741,6 +782,12 @@ impl QuarterbackConfig {
             }
             Some("help") => QuarterbackConfig::help(),
             Some("exit") | Some("quit") => {
+                //TODO: Have you saved? (y/n)
+                //      Do you want to? (y/n)
+                return Ok(EvalResult::ExitRepl);
+            }
+            //                              See? Told you, just like vim!
+            Some("exit!") | Some("quit!") | Some(":q!") => {
                 return Ok(EvalResult::ExitRepl);
             }
             Some(x) => println!("Unknown command: {x}"),

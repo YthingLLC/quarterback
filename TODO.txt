@@ -3,6 +3,7 @@ help                    done
 version                 done
 backing                 done
 users                   done - maybe change output?
+user                    TODO
 adduser                 done
 resetuserkey            done
    or resetuser         done
@@ -11,13 +12,18 @@ superuser               done
 username                done
 addrole                 TODO
 clonerole               TODO
+role                    TODO
+roles                   TODO
 addaction               done
 actions                 done
+action                  TODO
 actionname              done 
 actiontimeout           TODO
 actioncooldown          TODO
 actionpath              TODO
 actionargs              TODO
+actioncmd               TODO
+actionabortsignal       TODO
 addroleaction           TODO
 addroleuser             TODO
 delaction               TODO
@@ -31,6 +37,10 @@ hash                    done
 show_map                TODO
                         
 
+refactor out the .next() calls to a macro, i.e. iternext!(var1, var2...)
+   also, refactor out the if let, and error messages for the above into another macro
+   maybe full macro could be something like:
+      evalinput!(action, name, err:literal, help:literal, inner fn (i.e. a call to self.fn(action, name)))
 
 daemon mode
 action executor
