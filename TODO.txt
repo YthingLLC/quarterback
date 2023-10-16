@@ -30,6 +30,7 @@ addroleuser             TODO
 delaction               TODO
 delroleaction           TODO
 delroleuser             TODO
+delrole                 TODO
 deluser                 TODO
 save                    TODO - partial
 exit                    done
