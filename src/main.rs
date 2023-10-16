@@ -584,35 +584,222 @@ impl QuarterbackConfig {
                 allowed_users: HashSet::new(),
             },
         );
+
+        println!("Role {} added", uuid.to_string());
     }
 
-    fn clone_role(&mut self, roleid: &str) {}
+    fn clone_role(&mut self, roleid: &str) {
+        let uuid = parseuuid!(roleid, "role id");
 
-    fn print_role_by_uuid_string(&self, roleid: &str) {}
+        let role = getrole!(self, &uuid);
 
-    fn print_role(&self, uuid: &Uuid, role: &QuarterbackRole) {}
+        let new_role = QuarterbackRole {
+            role_name: role.role_name.clone(),
+            allowed_actions: role.allowed_actions.clone(),
+            allowed_users: role.allowed_users.clone(),
+        };
 
-    fn print_roles(&self) {}
-
-    fn add_role_action(&mut self, roleid: &str, actionid: &str) {}
-
-    fn add_role_user(&mut self, roleid: &str, userid: &str) {}
-
-    fn del_role_action(&mut self, roleid: &str, actionid: &str) {}
-
-    fn del_role_user(&mut self, roleid: &str, userid: &str) {}
-
-    fn del_action(&mut self, actionid: &str) {}
-
-    fn del_role(&mut self, roleid: &str) {}
-
-    fn del_user(&mut self, userid: &str) {}
-
-    pub fn compute_map(&self) -> QuarterbackActionUsers {
-        todo!("Not yet implemented");
+        self.roles.insert(Uuid::new_v4(), new_role);
     }
 
-    fn print_maps(&self) {}
+    fn print_role_by_uuid_string(&self, roleid: &str) {
+        let uuid = parseuuid!(roleid, "role id");
+
+        let role = getrole!(self, &uuid);
+
+        self.print_role(&uuid, role);
+    }
+
+    fn print_role(&self, uuid: &Uuid, role: &QuarterbackRole) {
+        println!("  Role ID: {}", uuid.to_string());
+        println!("Role Name: {}", role.role_name);
+        println!();
+
+        let user_map = self.compute_username_map();
+
+        let action_map = self.compute_actionname_map();
+
+        println!("Allowed Actions:");
+        println!("{:^36} ({})", "ID", "Name");
+        let unknown_name = "!!Unknown Name!!";
+        for action in &role.allowed_actions {
+            //y'know rust, it's dumb that .get returns an Option<&&str> here
+            let name = match action_map.get(action) {
+                None => unknown_name,
+                Some(name) => *name,
+            };
+            println!("{:<40} ({})", action, name);
+        }
+        println!();
+        println!("Allowed Users:");
+
+        for user in &role.allowed_users {
+            //same here, so dumb that .get returns Option<&&str> *eyeroll*
+            let name = match user_map.get(user) {
+                None => unknown_name,
+                Some(name) => *name,
+            };
+            println!("{:<40} ({})", user, name);
+        }
+    }
+
+    fn print_roles(&self) {
+        println!("{:=<60}", "");
+        for (id, role) in &self.roles {
+            self.print_role(id, role);
+            println!("{:=<60}", "");
+        }
+    }
+
+    fn add_role_action(&mut self, roleid: &str, actionid: &str) {
+        let roleid = parseuuid!(roleid, "role id");
+        let actionid = parseuuid!(actionid, "action id");
+
+        //we don't care about the action itself, just need to verify it exists
+        let _ = getaction!(self, &actionid);
+
+        let role = getrolemut!(self, &roleid);
+
+        role.allowed_actions.insert(actionid);
+    }
+
+    fn add_role_user(&mut self, roleid: &str, userid: &str) {
+        let roleid = parseuuid!(roleid, "role id");
+        let userid = parseuuid!(userid, "user id");
+
+        let _ = getuser!(self, &userid);
+
+        let role = getrolemut!(self, &roleid);
+
+        role.allowed_users.insert(userid);
+    }
+
+    fn del_role_action(&mut self, roleid: &str, actionid: &str) {
+        let roleid = parseuuid!(roleid, "role id");
+        let actionid = parseuuid!(actionid, "action id");
+
+        let _ = getaction!(self, &actionid);
+
+        let role = getrolemut!(self, &roleid);
+
+        role.allowed_actions.remove(&actionid);
+    }
+
+    fn del_role_user(&mut self, roleid: &str, userid: &str) {
+        let roleid = parseuuid!(roleid, "role id");
+        let userid = parseuuid!(userid, "user id");
+
+        let _ = getuser!(self, &userid);
+
+        let role = getrolemut!(self, &roleid);
+
+        role.allowed_users.remove(&userid);
+    }
+
+    fn del_action(&mut self, actionid: &str) {
+        let actionid = parseuuid!(actionid, "action id");
+
+        //same thing here, we don't need the 'aciton', but we do want to check if it exists
+        let _ = getaction!(self, &actionid);
+
+        //self.roles.values() doesn't work, but this does
+        //*shrug*, same shit, different words
+        for (_, role) in &mut self.roles {
+            role.allowed_actions.remove(&actionid);
+        }
+        self.actions.remove(&actionid);
+        println!("Action {} removed", actionid);
+    }
+
+    fn del_user(&mut self, userid: &str) {
+        let userid = parseuuid!(userid, "user id");
+
+        let _ = getuser!(self, &userid);
+
+        //*eyeroll*
+        for (_, role) in &mut self.roles {
+            role.allowed_users.remove(&userid);
+        }
+        self.users.remove(&userid);
+        println!("User {} removed", userid);
+    }
+
+    fn del_role(&mut self, roleid: &str) {
+        let roleid = parseuuid!(roleid, "role id");
+
+        //again, looks weird since we're deleting it on the next line,
+        //but we want to check that it exists before attempting delete
+        //(which is what this macro does for us)
+        //TODO: As part of the refactor to deuglify, do these too.
+        let _ = getrole!(self, &roleid);
+
+        self.roles.remove(&roleid);
+
+        println!("Role {} removed", roleid);
+    }
+
+    pub fn compute_action_map(&self) -> QuarterbackActionUsers {
+        let mut map = HashMap::new();
+
+        //(action, user)
+        let mut accumulator = Vec::<(&Uuid, &Uuid)>::new();
+
+        for (_, role) in &self.roles {
+            for action in &role.allowed_actions {
+                for user in &role.allowed_users {
+                    accumulator.push((action, user));
+                }
+            }
+        }
+
+        for (id, _) in &self.actions {
+            map.insert(id.clone(), HashSet::new());
+        }
+
+        for (action, user) in accumulator {
+            let actionset = map.get_mut(action);
+            match actionset {
+                //We should never have a "none", but I'm still not using unwrap.
+                None => continue,
+                Some(set) => {
+                    set.insert(*user);
+                }
+            }
+        }
+
+        QuarterbackActionUsers { map }
+    }
+
+    pub fn compute_username_map(&self) -> HashMap<&Uuid, &String> {
+        let mut map = HashMap::new();
+
+        for (userid, user) in &self.users {
+            map.insert(userid, &user.user_name);
+        }
+
+        map
+    }
+
+    pub fn compute_actionname_map(&self) -> HashMap<&Uuid, &String> {
+        let mut map = HashMap::new();
+
+        for (actionid, action) in &self.actions {
+            map.insert(actionid, &action.name);
+        }
+
+        map
+    }
+    fn print_action_map(&self) {
+        println!("{:?}", self.compute_action_map());
+    }
+
+    fn print_username_map(&self) {
+        println!("{:?}", self.compute_username_map());
+    }
+
+    fn print_actionname_map(&self) {
+        println!("{:?}", self.compute_actionname_map());
+    }
 
     fn hash(password: &str) -> Result<PasswordString, QuarterbackError> {
         QuarterbackConfig::hash_with_print(password, false)
@@ -689,6 +876,8 @@ impl QuarterbackConfig {
             user                    display a specific user
                                         Example: user [userid]
 
+            ==== USER MANAGEMENT ====
+
             users                   display the list of currently configured 'users'
                                         user names are not unique, and can be reused
                                         when referring to users in other commands
@@ -723,20 +912,7 @@ impl QuarterbackConfig {
                                         Example: username [userid] [name]
                                         See `users` command, user names are not unique.
 
-
-            addrole                 add a new role
-                                        Example: addrole [rolename]
-                                        Note: by default, roles are assigned no users or actions
-
-            clonerole               clone a role, and all users and actions assigned to it
-                or roleclone            Example: clonerole [roleid]
-
-            role                    display a specific role
-                                        Example: role [roleid]
-
-            roles                   display the list of configured roles
-                                        role names are not unique
-                                        when referring to roles in other commands use the role id
+            ==== ACTION MANAGEMENT ====
 
             action                  display a specific action
                                         Example: action [actionid]
@@ -785,11 +961,31 @@ impl QuarterbackConfig {
                                             You probably do not want this. 
                                         Example: addaction [name] [timeout (seconds)] [cooldown (seconds)] [command] [args...]
 
+            ==== ROLE MANAGEMENT ====
+
+            addrole                 add a new role
+                                        Example: addrole [rolename]
+                                        Note: by default, roles are assigned no users or actions
+
+            clonerole               clone a role, and all users and actions assigned to it
+                or roleclone            Example: clonerole [roleid]
+
+            role                    display a specific role
+                                        Example: role [roleid]
+
+            roles                   display the list of configured roles
+                                        role names are not unique
+                                        when referring to roles in other commands use the role id
+
+
             addroleaction           add an action to a role
                                         Example: addroleaction [roleid] [actionid]
 
             addroleuser             add a user to a role
                                         Example: addroleuser [roleid] [userid]
+
+
+            ==== OBJECT MANAGEMENT ====
                                         
 
             delaction               delete an action
@@ -814,6 +1010,8 @@ impl QuarterbackConfig {
                 or quit!            exit the configurtor, without save checking, just like vim.
 
 
+            ==== DEVELOPMENT ====
+
             The following commands are included for testing only. They may be removed at any time:
 
             [Command]               [Description]
@@ -829,8 +1027,17 @@ impl QuarterbackConfig {
                                         If `Check: Ok(())` is displayed, the hash and the
                                         verification succeeded.
 
-            show_map                compute the map of actions and their allowed users
+            show_action_map         compute the map of actions and their allowed users
                                         printing the map to stdout
+                                        (i.e. actionid => set(userids))
+
+            show_action_name_map    compute the action_name map
+                                        printing the map to stdout
+                                        (i.e. actionid => name)
+
+            show_user_name_map      compute the user_name map
+                                        printing the map to stdout
+                                        (i.e. userid => name)
 
             "}
     }
@@ -912,7 +1119,6 @@ impl QuarterbackConfig {
                     println!("    Example: username [userid] [name]");
                 }
             }
-            Some("addrole") => {}
             Some("action") => {
                 let action = input_vec.next();
 
@@ -1057,16 +1263,69 @@ impl QuarterbackConfig {
                 let action = input_vec.next();
                 let action_log = input_vec.next();
 
-                if let (Some(action), Some(action_log)) = (action, action_log) {
-                    //                                          yes, I know.
-                    //                                          TODO: Deuglify
-                    let action_log = QuarterbackConfig::is_true(Some(action_log));
+                if let Some(action) = action {
+                    let action_log = QuarterbackConfig::is_true(action_log);
                     self.set_action_stdout(action, action_log);
                 } else {
                     println!("ERROR: An action id and flag must be provided!");
                     println!("    If true, log the action output into memory");
                     println!("    false by default");
-                    println!("    Example: actionlog [actionid] [logging flag]");
+                    println!("    Example: actionlog [actionid] [logging flag: default(false)]");
+                }
+            }
+            Some("addrole") => {
+                let name = input_vec.next();
+
+                if let Some(name) = name {
+                    self.add_role(name);
+                } else {
+                    println!("ERROR: A name must be provided!");
+                    println!("    Example: addrole [name]");
+                }
+            }
+            Some("clonerole") | Some("roleclone") => {
+                let role = input_vec.next();
+
+                if let Some(role) = role {
+                    self.clone_role(role);
+                } else {
+                    println!("ERROR: A role ID must be provided!");
+                    println!("    Example: clonerole [roleid]");
+                }
+            }
+            Some("role") => {
+                let role = input_vec.next();
+
+                if let Some(role) = role {
+                    self.print_role_by_uuid_string(role);
+                } else {
+                    println!("ERROR: A role ID must be provided!");
+                    println!("    Example: role [roleid]");
+                }
+            }
+            Some("roles") => {
+                self.print_roles();
+            }
+            Some("addroleaction") => {
+                let role = input_vec.next();
+                let action = input_vec.next();
+
+                if let (Some(role), Some(action)) = (role, action) {
+                    self.add_role_action(role, action);
+                } else {
+                    println!("ERROR: A role ID and action ID must be provided!");
+                    println!("    Example: addroleaction [roleid] [actionid]");
+                }
+            }
+            Some("addroleuser") => {
+                let role = input_vec.next();
+                let user = input_vec.next();
+
+                if let (Some(role), Some(user)) = (role, user) {
+                    self.add_role_user(role, user);
+                } else {
+                    println!("ERROR: A role ID and user ID must be provided!");
+                    println!("    Example: addroleuser [roleid] [userid]");
                 }
             }
             Some("save") => self.save(),
@@ -1076,6 +1335,15 @@ impl QuarterbackConfig {
             }
             Some("hash") => {
                 let _ = QuarterbackConfig::hash_with_print(input_vec.next().unwrap_or(""), true);
+            }
+            Some("show_action_map") => {
+                self.print_action_map();
+            }
+            Some("show_action_name_map") => {
+                self.print_actionname_map();
+            }
+            Some("show_user_name_map") => {
+                self.print_username_map();
             }
             Some("help") => QuarterbackConfig::help(),
             Some("exit") | Some("quit") => {
