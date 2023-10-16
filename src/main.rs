@@ -1000,6 +1000,9 @@ impl QuarterbackConfig {
             deluser                 delete a user
                                         Example: deluser [userid]
 
+            delrole                 delete a role
+                                        Example: delrole [roleid]
+
             save                    save the configuration
                                         use `backing` to see where the configuration will be saved!
 
@@ -1326,6 +1329,58 @@ impl QuarterbackConfig {
                 } else {
                     println!("ERROR: A role ID and user ID must be provided!");
                     println!("    Example: addroleuser [roleid] [userid]");
+                }
+            }
+            Some("delaction") => {
+                let action = input_vec.next();
+
+                if let Some(action) = action {
+                    self.del_action(action);
+                } else {
+                    println!("ERROR: An action ID must be provided!");
+                    println!("    Example: delaction [actionid]");
+                }
+            }
+            Some("delroleaction") => {
+                let role = input_vec.next();
+                let action = input_vec.next();
+
+                if let (Some(role), Some(action)) = (role, action) {
+                    self.del_role_action(role, action);
+                } else {
+                    println!("ERROR: A role ID and action ID must be provided!");
+                    println!("    Example: delroleaction [roleid] [actionid]");
+                }
+            }
+            Some("delroleuser") => {
+                let role = input_vec.next();
+                let user = input_vec.next();
+
+                if let (Some(role), Some(user)) = (role, user) {
+                    self.del_role_user(role, user);
+                } else {
+                    println!("ERROR: A role ID and user ID must be provided!");
+                    println!("    Example: delroleuser [roleid] [userid]");
+                }
+            }
+            Some("deluser") => {
+                let user = input_vec.next();
+
+                if let Some(user) = user {
+                    self.del_user(user);
+                } else {
+                    println!("ERROR: A user ID must be provided!");
+                    println!("    Example: deluser [userid]");
+                }
+            }
+            Some("delrole") => {
+                let role = input_vec.next();
+
+                if let Some(role) = role {
+                    self.del_role(role);
+                } else {
+                    println!("ERROR: A role ID must be provided!");
+                    println!("    Example: delrole [roleid]");
                 }
             }
             Some("save") => self.save(),

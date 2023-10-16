@@ -8,12 +8,13 @@ adduser                 done
 resetuserkey            done
    or resetuser         done
 checkuserkey            done
+checkuseraction         TODO
 superuser               done 
 username                done
-addrole                 TODO
-clonerole               TODO
-role                    TODO
-roles                   TODO
+addrole                 done 
+clonerole               done 
+role                    done 
+roles                   done 
 addaction               done
 actions                 done
 action                  done
@@ -25,13 +26,13 @@ actionargs              done
 actioncmd               done 
 actionabortsignal       done
 actionstdout            done 
-addroleaction           TODO
-addroleuser             TODO
-delaction               TODO
-delroleaction           TODO
-delroleuser             TODO
-delrole                 TODO
-deluser                 TODO
+addroleaction           done 
+addroleuser             done 
+delaction               done 
+delroleaction           done 
+delroleuser             done 
+delrole                 done 
+deluser                 done 
 save                    TODO - partial
 exit                    done
 is_true                 done
