@@ -34,7 +34,7 @@ delroleaction           done
 delroleuser             done 
 delrole                 done 
 deluser                 done 
-save                    TODO - partial
+save                    done
 exit                    done
 is_true                 done
 hash                    done
