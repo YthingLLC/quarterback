@@ -173,11 +173,11 @@ impl QuarterbackUser {
         match Argon2::default().verify_password(key.as_bytes(), &user_key) {
             Err(_) => {
                 print_if!(print, "Invalid key");
-                return false;
+                false
             }
             Ok(_) => {
                 print_if!(print, "Valid key");
-                return true;
+                true
             }
         }
     }
@@ -256,7 +256,34 @@ impl QuarterbackConfig {
         serde_yaml::from_str(config)
     }
 
-    pub fn from_yaml_file(file: &mut File) -> Result<QuarterbackConfig, serde_yaml::Error> {
+    pub fn from_yaml_file_path(file_path: &str) -> Option<QuarterbackConfig> {
+        let mut file = File::open(file_path);
+        match &mut file {
+            Err(e) => {
+                eprintln!("Failed to load file: {file_path} - {e}");
+                None
+            }
+            Ok(file) => {
+                let yaml_config = QuarterbackConfig::from_yaml_file_handle(file);
+                match yaml_config {
+                    Err(e) => {
+                        eprintln!("Failed to load yaml: {e}");
+                        None
+                    }
+
+                    Ok(mut conf) => {
+                        let cfg = YamlFileConfig {
+                            config_file_path: file_path.to_string(),
+                        };
+                        conf.backing = QuarterbackConfigBacking::YamlFile(cfg);
+                        Some(conf)
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn from_yaml_file_handle(file: &mut File) -> Result<QuarterbackConfig, serde_yaml::Error> {
         let mut conf_string = String::new();
         let _ = file.read_to_string(&mut conf_string);
         QuarterbackConfig::from_yaml(&conf_string)
@@ -280,7 +307,6 @@ impl QuarterbackConfig {
                         Err(e) => {
                             println!("ERROR: unable to create file: {}", file.config_file_path);
                             println!("{e}");
-                            return;
                         }
                         Ok(file) => match self.to_yaml() {
                             Err(e) => {
@@ -401,7 +427,7 @@ impl QuarterbackConfig {
 
         let user = getusermut!(self, &uuid);
 
-        match QuarterbackConfig::hash(&key) {
+        match QuarterbackConfig::hash(key) {
             Err(e) => println!("Password hashing failed: {e:?}"),
             Ok(key) => {
                 println!("User key updated");
@@ -474,13 +500,13 @@ impl QuarterbackConfig {
         userid: &Uuid,
         actionid: &Uuid,
     ) -> bool {
-        if !map.map.contains_key(&actionid) {
+        if !map.map.contains_key(actionid) {
             //action does not exist
             //can not execute an action that doesn't exist!
             //println!("Action does not exist");
             return false;
         }
-        let user = self.users.get(&userid);
+        let user = self.users.get(userid);
         if let Some(user) = user {
             if user.super_user {
                 //user is a super user
@@ -562,7 +588,7 @@ impl QuarterbackConfig {
             "{:<40} {:<20} {:<10} {:<10}",
             "ID", "Name", "Timeout", "Cooldown"
         );
-        self.print_action(&uuid, &action);
+        self.print_action(&uuid, action);
     }
 
     //this doesn't really need &self, but it makes calling it easier
@@ -704,7 +730,7 @@ impl QuarterbackConfig {
             },
         );
 
-        println!("Role {} added", uuid.to_string());
+        println!("Role {} added", uuid);
     }
 
     fn clone_role(&mut self, roleid: &str) {
@@ -730,7 +756,7 @@ impl QuarterbackConfig {
     }
 
     fn print_role(&self, uuid: &Uuid, role: &QuarterbackRole) {
-        println!("  Role ID: {}", uuid.to_string());
+        println!("  Role ID: {}", uuid);
         println!("Role Name: {}", role.role_name);
         println!();
 
@@ -739,7 +765,7 @@ impl QuarterbackConfig {
         let action_map = self.compute_actionname_map();
 
         println!("Allowed Actions:");
-        println!("{:^36} ({})", "ID", "Name");
+        println!("{:^36} (Name)", "ID");
         let unknown_name = "!!Unknown Name!!";
         for action in &role.allowed_actions {
             //y'know rust, it's dumb that .get returns an Option<&&str> here
@@ -829,9 +855,7 @@ impl QuarterbackConfig {
         //same thing here, we don't need the 'aciton', but we do want to check if it exists
         let _ = getaction!(self, &actionid);
 
-        //self.roles.values() doesn't work, but this does
-        //*shrug*, same shit, different words
-        for (_, role) in &mut self.roles {
+        for role in &mut self.roles.values_mut() {
             role.allowed_actions.remove(&actionid);
         }
         self.actions.remove(&actionid);
@@ -843,8 +867,7 @@ impl QuarterbackConfig {
 
         let _ = getuser!(self, &userid);
 
-        //*eyeroll*
-        for (_, role) in &mut self.roles {
+        for role in &mut self.roles.values_mut() {
             role.allowed_users.remove(&userid);
         }
         self.users.remove(&userid);
@@ -878,7 +901,7 @@ impl QuarterbackConfig {
         //(action, user)
         let mut accumulator = Vec::<(&Uuid, &Uuid)>::new();
 
-        for (_, role) in &self.roles {
+        for role in self.roles.values() {
             for action in &role.allowed_actions {
                 for user in &role.allowed_users {
                     accumulator.push((action, user));
@@ -886,8 +909,8 @@ impl QuarterbackConfig {
             }
         }
 
-        for (id, _) in &self.actions {
-            map.insert(id.clone(), HashSet::new());
+        for id in self.actions.keys() {
+            map.insert(*id, HashSet::new());
         }
 
         for (action, user) in accumulator {
@@ -1633,21 +1656,11 @@ impl QuarterbackMode {
             println!("No configuration file provided. Starting in memory mode. Remember to save your config!");
             println!("    hint: use command `backing` for help!");
         } else {
-            let mut file = File::open(config);
-            match &mut file {
-                Err(e) => {
-                    println!("Failed to load file: {config} - {e}");
-                    println!("Starting in memory mode, remember to save your config!");
-                    println!("    hint: use command `backing` for help!");
-                    conf = QuarterbackConfig::new();
+            match QuarterbackConfig::from_yaml_file_path(config) {
+                None => {
+                    panic!("ERROR: Unable to load Yaml file. Exiting.");
                 }
-                Ok(file) => {
-                    let yaml_config = QuarterbackConfig::from_yaml_file(file);
-                    match yaml_config {
-                        Err(e) => panic!("Failed to load yaml: {e}"),
-                        Ok(yaml_config) => conf = yaml_config,
-                    }
-                }
+                Some(config) => conf = config,
             }
         }
 
