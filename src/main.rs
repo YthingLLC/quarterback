@@ -256,6 +256,12 @@ impl QuarterbackConfig {
         serde_yaml::from_str(config)
     }
 
+    pub fn from_yaml_file(file: &mut File) -> Result<QuarterbackConfig, serde_yaml::Error> {
+        let mut conf_string = String::new();
+        let _ = file.read_to_string(&mut conf_string);
+        QuarterbackConfig::from_yaml(&conf_string)
+    }
+
     pub fn to_yaml(&self) -> Result<String, serde_yaml::Error> {
         serde_yaml::to_string(&self)
     }
@@ -267,9 +273,36 @@ impl QuarterbackConfig {
                 QuarterbackConfigBacking::Memory => {
                     println!("{yaml}");
                 }
-                QuarterbackConfigBacking::YamlFile(file) => {}
+                QuarterbackConfigBacking::YamlFile(file) => {
+                    //TODO: Add this to the deuglification pile
+                    println!("Saving to {}", file.config_file_path);
+                    match File::create(&file.config_file_path) {
+                        Err(e) => {
+                            println!("ERROR: unable to create file: {}", file.config_file_path);
+                            println!("{e}");
+                            return;
+                        }
+                        Ok(file) => match self.to_yaml() {
+                            Err(e) => {
+                                println!("ERROR: Unable to create yaml of config: {e}");
+                            }
+                            Ok(yaml) => {
+                                let mut file = file;
+                                match file.write_all(yaml.as_bytes()) {
+                                    Err(e) => {
+                                        println!("ERROR: Unable to write file: {e}");
+                                    }
+                                    Ok(_) => match file.sync_all() {
+                                        Err(e) => println!("ERROR: Can not sync to disk: {e}"),
+                                        Ok(_) => println!("SUCCESS: File saved to disk"),
+                                    },
+                                }
+                            }
+                        },
+                    };
+                }
             },
-            Err(e) => println!("Error saving: {e}"),
+            Err(e) => println!("ERROR: Unable to save: {e}"),
         }
     }
 
@@ -974,10 +1007,10 @@ impl QuarterbackConfig {
             
             backing                 set the configuration backing persistence
 
+            ==== USER MANAGEMENT ====
+
             user                    display a specific user
                                         Example: user [userid]
-
-            ==== USER MANAGEMENT ====
 
             users                   display the list of currently configured 'users'
                                         user names are not unique, and can be reused
@@ -991,7 +1024,7 @@ impl QuarterbackConfig {
                                         Example: adduser ltorv true
                                             Creates a user `ltorv` that is a super user.
                                         Example: adduser swoz
-                                            Creates a user `swoz` that is a super user.
+                                            Creates a user `swoz` that is not a super user.
 
                                         See `users` command, user names are not unique.
 
@@ -1006,11 +1039,11 @@ impl QuarterbackConfig {
             checkuserkey            check if a key is valid for a user
                 or userkeycheck         Example: checkuserkey [userid] [userkey]
 
-            checkuseraction
-                or useractioncheck  check if a user can execute an action
-                                        This checks against currently configured roles
-                                        !!!SUPER USERS CAN RUN ANY ACTION!!!
-                                        Example: checkuseraction [userid] [actionid]
+            checkuseraction          check if a user can execute an action             
+                or useractioncheck      This checks against currently configured rolesioncheck  
+                                        !!!SUPER USERS CAN RUN ANY ACTION!!!                    
+                                        Example: checkuseraction [userid] [actionid]            
+                                    
                                     
             checkexecute            check if a user can execute an action, with key verification
                 or executecheck         This checks against currently configured roles
@@ -1609,9 +1642,7 @@ impl QuarterbackMode {
                     conf = QuarterbackConfig::new();
                 }
                 Ok(file) => {
-                    let mut conf_string = String::new();
-                    let _ = file.read_to_string(&mut conf_string);
-                    let yaml_config = QuarterbackConfig::from_yaml(&conf_string);
+                    let yaml_config = QuarterbackConfig::from_yaml_file(file);
                     match yaml_config {
                         Err(e) => panic!("Failed to load yaml: {e}"),
                         Ok(yaml_config) => conf = yaml_config,
