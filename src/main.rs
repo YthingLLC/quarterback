@@ -155,7 +155,7 @@ struct QuarterbackActionUsers {
 }
 
 impl QuarterbackUser {
-    fn check_key(&self, key: &str) -> bool {
+    pub fn check_key(&self, key: &str) -> bool {
         self.check_key_print(key, false)
     }
     fn check_key_print(&self, key: &str, print: bool) -> bool {
@@ -385,6 +385,92 @@ impl QuarterbackConfig {
         user.check_key_print(key, true);
     }
 
+    pub fn check_user_key_from_str(&self, userid: &str, key: &str) -> bool {
+        let uuid = Uuid::try_parse(userid);
+
+        if let Ok(uuid) = uuid {
+            if let Some(user) = self.users.get(&uuid) {
+                return user.check_key(key);
+            }
+        }
+
+        false
+    }
+
+    fn check_user_action(&self, userid: &str, actionid: &str) {
+        let userid = parseuuid!(userid, "user id");
+        let actionid = parseuuid!(actionid, "action id");
+
+        let user = getuser!(self, &userid);
+        let _ = getaction!(self, &actionid);
+
+        let map = self.compute_action_map();
+
+        let result = self.check_user_action_from_uuid(&map, &userid, &actionid);
+
+        if user.super_user {
+            println!("User is a super user!");
+        }
+
+        if result {
+            println!("User {} can execute action {}", userid, actionid);
+        } else {
+            println!("User {} can NOT execute action {}", userid, actionid);
+        }
+    }
+
+    pub fn check_user_action_from_str(
+        &self,
+        map: &QuarterbackActionUsers,
+        userid: &str,
+        actionid: &str,
+    ) -> bool {
+        let userid = Uuid::try_parse(userid);
+        let actionid = Uuid::try_parse(actionid);
+
+        if let (Ok(userid), Ok(actionid)) = (userid, actionid) {
+            return self.check_user_action_from_uuid(map, &userid, &actionid);
+        }
+
+        false
+    }
+
+    pub fn check_user_action_from_uuid(
+        &self,
+        map: &QuarterbackActionUsers,
+        userid: &Uuid,
+        actionid: &Uuid,
+    ) -> bool {
+        if !map.map.contains_key(&actionid) {
+            //action does not exist
+            //can not execute an action that doesn't exist!
+            //println!("Action does not exist");
+            return false;
+        }
+        let user = self.users.get(&userid);
+        if let Some(user) = user {
+            if user.super_user {
+                //user is a super user
+                //they can execute anything
+                //println!("User is a super user");
+                return true;
+            }
+        } else {
+            //user does not exist
+            //println!("User does not exist");
+            return false;
+        }
+        if let Some(action) = map.map.get(actionid) {
+            //if the set of users contained under this action
+            //contains the user, they are allowed to execute
+            //the action.
+            //println!("action contains");
+            return action.contains(userid);
+        }
+        //return false by default
+        println!("default false");
+        false
+    }
     fn set_super_user(&mut self, userid: &str, flag: bool) {
         let uuid = parseuuid!(userid, "user id");
 
@@ -393,7 +479,7 @@ impl QuarterbackConfig {
         user.super_user = flag;
 
         println!(
-            "User: {} [{}] Flag set: {:?}",
+            "User: {} [{}] Super User: {:?}",
             user.user_name, userid, user.super_user
         );
     }
@@ -661,6 +747,8 @@ impl QuarterbackConfig {
         let role = getrolemut!(self, &roleid);
 
         role.allowed_actions.insert(actionid);
+
+        println!("Action {} added to role {}", actionid, roleid);
     }
 
     fn add_role_user(&mut self, roleid: &str, userid: &str) {
@@ -672,6 +760,8 @@ impl QuarterbackConfig {
         let role = getrolemut!(self, &roleid);
 
         role.allowed_users.insert(userid);
+
+        println!("User {} added to role {}", userid, roleid);
     }
 
     fn del_role_action(&mut self, roleid: &str, actionid: &str) {
@@ -683,6 +773,8 @@ impl QuarterbackConfig {
         let role = getrolemut!(self, &roleid);
 
         role.allowed_actions.remove(&actionid);
+
+        println!("Action {} removed from role {}", actionid, roleid);
     }
 
     fn del_role_user(&mut self, roleid: &str, userid: &str) {
@@ -694,6 +786,8 @@ impl QuarterbackConfig {
         let role = getrolemut!(self, &roleid);
 
         role.allowed_users.remove(&userid);
+
+        println!("User {} removed from role {}", userid, roleid);
     }
 
     fn del_action(&mut self, actionid: &str) {
@@ -738,6 +832,13 @@ impl QuarterbackConfig {
         println!("Role {} removed", roleid);
     }
 
+    //used for runtime caching
+    //faster lookups by determining which users can execute
+    //every action by iterating through all roles
+    //deduplicates against multiple roles containing same action
+    //i.e. if an action is granted to a user by multipe roles
+    //the result of this fn will only contain 1 entry for the user
+    //under the action
     pub fn compute_action_map(&self) -> QuarterbackActionUsers {
         let mut map = HashMap::new();
 
@@ -904,6 +1005,19 @@ impl QuarterbackConfig {
 
             checkuserkey            check if a key is valid for a user
                 or userkeycheck         Example: checkuserkey [userid] [userkey]
+
+            checkuseraction
+                or useractioncheck  check if a user can execute an action
+                                        This checks against currently configured roles
+                                        !!!SUPER USERS CAN RUN ANY ACTION!!!
+                                        Example: checkuseraction [userid] [actionid]
+                                    
+            checkexecute            check if a user can execute an action, with key verification
+                or executecheck         This checks against currently configured roles
+                                        !!!SUPER USERS CAN RUN ANY ACTION!!!
+                                        This also requires a valid user key, to check without
+                                        verifying a valid user key, use `checkuseraction`
+                                        Example: checkexecute [userid] [userkey] [actionid]
 
             superuser               set or unset the super user flag for a specific user
                 or usersuper            Example: superuser [userid] [super user flag (default: false)]
@@ -1098,6 +1212,51 @@ impl QuarterbackConfig {
                 } else {
                     println!("ERROR: A userid and key must be provided!");
                     println!("    Example: checkuserkey [userid] [key]");
+                }
+            }
+            Some("checkuseraction") | Some("useractioncheck") => {
+                let user = input_vec.next();
+                let action = input_vec.next();
+
+                if let (Some(user), Some(action)) = (user, action) {
+                    self.check_user_action(user, action);
+                } else {
+                    println!("ERROR: A userid and actionid must be provided!");
+                    println!("    Example: checkuseraction [userid] [actionid]");
+                }
+            }
+            Some("checkexecute") | Some("executecheck") => {
+                let user = input_vec.next();
+                let key = input_vec.next();
+                let action = input_vec.next();
+
+                //TODO: Deuglify, I hate this.
+                if let (Some(user), Some(key), Some(action)) = (user, key, action) {
+                    if self.check_user_key_from_str(user, key) {
+                        let map = self.compute_action_map();
+                        if self.check_user_action_from_str(&map, user, action) {
+                            println!(
+                                "SUCCESS: User {} authenticated, and can execute action {}",
+                                user, action
+                            );
+                        } else {
+                            let uuid = Uuid::try_parse(action);
+
+                            let action_exists =
+                                self.actions.contains_key(&uuid.unwrap_or(Uuid::new_v4()));
+
+                            if !action_exists {
+                                println!("ERROR: Action {} does not exist", action);
+                            } else {
+                                println!("ERROR: User {} can NOT execute action {}", user, action);
+                            }
+                        }
+                    } else {
+                        println!("ERROR: User Key Invalid!");
+                    }
+                } else {
+                    println!("ERROR: A userid, userkey, and actionid must be provided!");
+                    println!("    Example: checkexecute [userid] [userkey] [actionid]");
                 }
             }
             Some("superuser") | Some("usersuper") => {
@@ -1410,6 +1569,7 @@ impl QuarterbackConfig {
             Some("exit!") | Some("quit!") | Some(":q!") => {
                 return Ok(EvalResult::ExitRepl);
             }
+            Some("") => {}
             Some(x) => println!("Unknown command: {x}"),
             None => {}
         }

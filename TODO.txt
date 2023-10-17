@@ -8,7 +8,8 @@ adduser                 done
 resetuserkey            done
    or resetuser         done
 checkuserkey            done
-checkuseraction         TODO
+checkuseraction         done 
+checkexecute            done 
 superuser               done 
 username                done
 addrole                 done 
@@ -37,7 +38,7 @@ save                    TODO - partial
 exit                    done
 is_true                 done
 hash                    done
-show_map                TODO
+show_maps               done
                         
 
 refactor out the .next() calls to a macro, i.e. iternext!(var1, var2...)
