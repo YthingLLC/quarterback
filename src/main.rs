@@ -14,7 +14,7 @@ use argon2::{
 };
 use clap::{Parser, ValueEnum};
 use indoc::printdoc;
-use poem::{listener::TcpListener, Route, Server};
+use poem::{http, listener::TcpListener, Route, Server};
 use poem_openapi::{param::Path, payload::PlainText, OpenApi, OpenApiService};
 use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
@@ -1675,20 +1675,18 @@ impl Api {
         }
         if !self.allow_print_config {
             //Configuration printing is not allowed.
-            return Err(poem::Error::from_status(poem::http::StatusCode::FORBIDDEN));
+            return Err(poem::Error::from_status(http::StatusCode::FORBIDDEN));
         }
 
         if self.admin_key.eq(&authkey) {
             let ret = self.config.to_yaml().or(Err(poem::Error::from_status(
-                poem::http::StatusCode::INTERNAL_SERVER_ERROR,
+                http::StatusCode::INTERNAL_SERVER_ERROR,
             )))?;
             //Admin key matches and configuration printing is allowed
             Ok(PlainText(ret))
         } else {
             //Admin key does not match, but configuration printing is allowed
-            Err(poem::Error::from_status(
-                poem::http::StatusCode::UNAUTHORIZED,
-            ))
+            Err(poem::Error::from_status(http::StatusCode::UNAUTHORIZED))
         }
     }
 }
@@ -1772,12 +1770,14 @@ impl QuarterbackMode {
         }
     }
 
-    fn operate(self, config: String, allow_print_config: bool, with_request_logging: bool) {
+    fn operate(self, args: Args) {
         match self {
-            QuarterbackMode::Config => QuarterbackMode::configurator(&config),
-            QuarterbackMode::Daemon => {
-                QuarterbackMode::daemon(&config, allow_print_config, with_request_logging)
-            }
+            QuarterbackMode::Config => QuarterbackMode::configurator(&args.config),
+            QuarterbackMode::Daemon => QuarterbackMode::daemon(
+                &args.config,
+                args.allow_print_config,
+                args.with_request_logging,
+            ),
         }
     }
 }
@@ -1792,15 +1792,12 @@ struct Args {
     allow_print_config: bool,
     #[arg(long, default_value_t = false)]
     with_request_logging: bool,
+    #[arg(short, long, default_value = "127.0.0.1:4242")]
+    listen_addr: String,
 }
 
 fn main() {
     let args = Args::parse();
 
-    QuarterbackMode::operate(
-        args.mode,
-        args.config,
-        args.allow_print_config,
-        args.with_request_logging,
-    );
+    args.mode.operate(args);
 }
