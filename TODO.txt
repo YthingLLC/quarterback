@@ -53,3 +53,6 @@ reporting? smtp? notifications? webhooks?
 
 
 refactor the whole damn thing so it's not a single giant file?
+
+
+add github oauth, and add config for users to map to their username from oauth provider

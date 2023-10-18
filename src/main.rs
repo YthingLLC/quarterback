@@ -14,6 +14,8 @@ use argon2::{
 };
 use clap::{Parser, ValueEnum};
 use indoc::printdoc;
+use poem::{listener::TcpListener, Route, Server};
+use poem_openapi::{param::Path, payload::PlainText, OpenApi, OpenApiService};
 use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
 use simple_repl::{repl, EvalResult};
@@ -1636,6 +1638,61 @@ impl QuarterbackConfig {
     }
 }
 
+struct Api {
+    admin_key: String,
+    config: QuarterbackConfig,
+    allow_print_config: bool,
+    request_logging: bool,
+}
+
+#[OpenApi]
+impl Api {
+    fn get_now(&self) -> String {
+        format!("{:?}", chrono::offset::Local::now())
+    }
+    /// Hello World
+    #[oai(path = "/", method = "get")]
+    async fn index(&self) -> PlainText<&'static str> {
+        if self.request_logging {
+            println!("{} GET /", self.get_now());
+        }
+        PlainText("Hello World")
+    }
+
+    #[oai(path = "/config/:authkey", method = "get")]
+    async fn print_config(&self, authkey: Path<Option<String>>) -> poem::Result<PlainText<String>> {
+        let authkey = match authkey.0 {
+            None => "".to_string(),
+            Some(key) => key,
+        };
+        if self.request_logging {
+            println!(
+                "{} GET /config/{} - allow_print_config: {:?}",
+                self.get_now(),
+                &authkey,
+                &self.allow_print_config
+            );
+        }
+        if !self.allow_print_config {
+            //Configuration printing is not allowed.
+            return Err(poem::Error::from_status(poem::http::StatusCode::FORBIDDEN));
+        }
+
+        if self.admin_key.eq(&authkey) {
+            let ret = self.config.to_yaml().or(Err(poem::Error::from_status(
+                poem::http::StatusCode::INTERNAL_SERVER_ERROR,
+            )))?;
+            //Admin key matches and configuration printing is allowed
+            Ok(PlainText(ret))
+        } else {
+            //Admin key does not match, but configuration printing is allowed
+            Err(poem::Error::from_status(
+                poem::http::StatusCode::UNAUTHORIZED,
+            ))
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, ValueEnum)]
 enum QuarterbackMode {
     Config,
@@ -1668,10 +1725,59 @@ impl QuarterbackMode {
         let _ = repl(&mut eval);
     }
 
-    fn operate(self, config: String) {
+    fn daemon(config: &str, allow_print_config: bool, request_logging: bool) {
+        println!("Quarterback Daemon");
+        println!();
+
+        let conf = QuarterbackConfig::from_yaml_file_path(config);
+
+        match conf {
+            None => panic!("Configuration file required for daemon mode!"),
+            Some(conf) => {
+                let api = Api {
+                    admin_key: Uuid::new_v4().to_string(),
+                    config: conf,
+                    allow_print_config,
+                    request_logging,
+                };
+                if allow_print_config {
+                    println!("Admin key for this run: {}", api.admin_key);
+                    println!(
+                        "Configuration can be printed at route: /config/{}",
+                        api.admin_key
+                    );
+                } else {
+                    println!(
+                        "Configuration printing disabled. /config/:authkey route will not work"
+                    );
+                    println!("    Enable with --allow-print-config on cmdline");
+                }
+                let api_service = OpenApiService::new(api, "QuarterbackDaemon", "0.1")
+                    .server("http://localhost:4242");
+                let ui = api_service.swagger_ui();
+                let app = Route::new().nest("/", api_service).nest("/docs", ui);
+
+                let server = Server::new(TcpListener::bind("127.0.0.1:4242")).run(app);
+
+                match tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .build()
+                {
+                    Err(e) => panic!("Unable to start tokio! {e}"),
+                    Ok(tokio) => {
+                        let _ = tokio.block_on(server);
+                    }
+                }
+            }
+        }
+    }
+
+    fn operate(self, config: String, allow_print_config: bool, with_request_logging: bool) {
         match self {
             QuarterbackMode::Config => QuarterbackMode::configurator(&config),
-            QuarterbackMode::Daemon => println!("not yet implemented"),
+            QuarterbackMode::Daemon => {
+                QuarterbackMode::daemon(&config, allow_print_config, with_request_logging)
+            }
         }
     }
 }
@@ -1682,10 +1788,19 @@ struct Args {
     mode: QuarterbackMode,
     #[arg(short, long, default_value = "")]
     config: String,
+    #[arg(long, default_value_t = false)]
+    allow_print_config: bool,
+    #[arg(long, default_value_t = false)]
+    with_request_logging: bool,
 }
 
 fn main() {
     let args = Args::parse();
 
-    QuarterbackMode::operate(args.mode, args.config);
+    QuarterbackMode::operate(
+        args.mode,
+        args.config,
+        args.allow_print_config,
+        args.with_request_logging,
+    );
 }
