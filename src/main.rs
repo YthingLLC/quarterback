@@ -15,7 +15,7 @@ use argon2::{
 use clap::{Parser, ValueEnum};
 use indoc::printdoc;
 use poem::{http, listener::TcpListener, Route, Server};
-use poem_openapi::{param::Path, payload::PlainText, OpenApi, OpenApiService};
+use poem_openapi::{param::Path, param::Query, payload::PlainText, OpenApi, OpenApiService};
 use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
 use simple_repl::{repl, EvalResult};
@@ -1693,17 +1693,65 @@ impl Api {
         }
     }
 
-    async fn action_run() {}
+    #[oai(path = "/run/:actionid/:user/:key", method = "get")]
+    async fn action_run(
+        &self,
+        actionid: Path<Option<String>>,
+        user: Path<Option<String>>,
+        key: Path<Option<String>>,
+    ) -> poem::Result<PlainText<String>> {
+        Err(poem::Error::from_status(http::StatusCode::NOT_IMPLEMENTED))
+    }
 
-    async fn action_status() {}
+    #[oai(path = "/status/:actionid/:user/:key", method = "get")]
+    async fn action_status(
+        &self,
+        actionid: Path<Option<String>>,
+        user: Path<Option<String>>,
+        key: Path<Option<String>>,
+    ) -> poem::Result<PlainText<String>> {
+        Err(poem::Error::from_status(http::StatusCode::NOT_IMPLEMENTED))
+    }
 
-    async fn action_abort() {}
+    #[oai(path = "/abort/:actionid/:user/:key", method = "get")]
+    async fn action_abort(
+        &self,
+        actionid: Path<Option<String>>,
+        user: Path<Option<String>>,
+        key: Path<Option<String>>,
+    ) -> poem::Result<PlainText<String>> {
+        Err(poem::Error::from_status(http::StatusCode::NOT_IMPLEMENTED))
+    }
 
-    async fn action_timeout() {}
+    #[oai(path = "/timeout/:actionid/:user/:key", method = "get")]
+    async fn action_timeout(
+        &self,
+        actionid: Path<Option<String>>,
+        user: Path<Option<String>>,
+        key: Path<Option<String>>,
+    ) -> poem::Result<PlainText<String>> {
+        Err(poem::Error::from_status(http::StatusCode::NOT_IMPLEMENTED))
+    }
 
-    async fn action_cooldown() {}
+    #[oai(path = "/cooldown/:actionid/:user/:key", method = "get")]
+    async fn action_cooldown(
+        &self,
+        actionid: Path<Option<String>>,
+        user: Query<Option<String>>,
+        key: Query<Option<String>>,
+    ) -> poem::Result<PlainText<String>> {
+        Err(poem::Error::from_status(http::StatusCode::NOT_IMPLEMENTED))
+    }
 
-    async fn action_log() {}
+    #[oai(path = "/log/:actionid/:user/:key", method = "get")]
+    async fn action_log(
+        &self,
+        actionid: Path<Option<String>>,
+        user: Path<Option<String>>,
+        key: Path<Option<String>>,
+    ) -> poem::Result<PlainText<String>> {
+        Err(poem::Error::from_status(http::StatusCode::NOT_IMPLEMENTED))
+    }
 }
 
 #[derive(Debug, Copy, Clone, ValueEnum)]
@@ -1738,14 +1786,20 @@ impl QuarterbackMode {
         let _ = repl(&mut eval);
     }
 
-    fn daemon(config: &str, allow_print_config: bool, request_logging: bool, listen_addr: &str) {
+    fn daemon(
+        config: &str,
+        allow_print_config: bool,
+        request_logging: bool,
+        listen_addr: &str,
+        swagger_ui: bool,
+    ) {
         println!("Quarterback Daemon");
         println!();
 
         let conf = QuarterbackConfig::from_yaml_file_path(config);
 
         match conf {
-            None => panic!("Configuration file required for daemon mode!"),
+            None => panic!("Configuration file required for daemon mode! Provide a configuration with --config someconfig.yml\nConfigure interactively in 'config' mode (default) by removing 'daemon' from the command line!"),
             Some(conf) => {
                 let api = Api {
                     admin_key: Uuid::new_v4().to_string(),
@@ -1769,7 +1823,16 @@ impl QuarterbackMode {
                 let url = format!("http://{}", listen_addr);
                 let api_service = OpenApiService::new(api, "QuarterbackDaemon", "0.1").server(&url);
                 let ui = api_service.swagger_ui();
-                let app = Route::new().nest("/", api_service).nest("/docs", ui);
+
+                //let app = Route::new().nest("/", api_service).nest("/swagger", ui);
+
+                let app;
+
+                if swagger_ui {
+                    app = Route::new().nest("/", api_service).nest("/swagger", ui);
+                } else {
+                    app = Route::new().nest("/", api_service);
+                }
 
                 let server = Server::new(TcpListener::bind(listen_addr)).run(app);
 
@@ -1780,6 +1843,18 @@ impl QuarterbackMode {
                     Err(e) => panic!("Unable to start tokio! {e}"),
                     Ok(tokio) => {
                         println!("Listening at: {url}");
+                        if swagger_ui {
+                            println!("Swagger UI enabled: {url}/swagger");
+                        } else {
+                            println!("Swagger UI disabled: Enable it with --with-swagger-ui");
+                        }
+                        if request_logging {
+                            println!("Request logging enabled. Note: Only requests which are handled by Quarterback are logged, routes that '404' are not logged.");
+                            println!("To capture all requests, it is recommended to enable logging in the upstream reverse proxy.");
+                        } else {
+                            println!("Request logging disabled. No additional output to stdout is expected.");
+                            println!("    Enable it with --with-request-logging");
+                        }
                         let _ = tokio.block_on(server);
                     }
                 }
@@ -1795,6 +1870,7 @@ impl QuarterbackMode {
                 args.allow_print_config,
                 args.with_request_logging,
                 &args.listen_addr,
+                args.with_swagger_ui,
             ),
         }
     }
@@ -1804,14 +1880,39 @@ impl QuarterbackMode {
 struct Args {
     #[clap(default_value = "config")]
     mode: QuarterbackMode,
-    #[arg(short, long, default_value = "")]
+    #[arg(
+        short,
+        long,
+        default_value = "",
+        hide_default_value = true,
+        help = "Configuration file (absolute or relative to working directory)"
+    )]
     config: String,
-    #[arg(long, default_value_t = false)]
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Allow the config to be output at the /config/:authkey route in daemon mode"
+    )]
     allow_print_config: bool,
-    #[arg(long, default_value_t = false)]
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Log requests to routes handled by Quarterback (not including 404s)"
+    )]
     with_request_logging: bool,
-    #[arg(short, long, default_value = "127.0.0.1:4242")]
+    #[arg(
+        short,
+        long,
+        default_value = "127.0.0.1:4242",
+        help = "Address for daemon to listen on, also used as Swagger UI server base"
+    )]
     listen_addr: String,
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Enables the Swagger UI at /swagger in daemon mode"
+    )]
+    with_swagger_ui: bool,
 }
 
 fn main() {
