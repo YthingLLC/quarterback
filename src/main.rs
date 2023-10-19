@@ -438,6 +438,7 @@ impl QuarterbackConfig {
         }
     }
 
+    //Interactive
     fn check_user_key(&self, userid: &str, key: &str) {
         let uuid = parseuuid!(userid, "user id");
 
@@ -446,6 +447,7 @@ impl QuarterbackConfig {
         user.check_key_print(key, true);
     }
 
+    //External use
     pub fn check_user_key_from_str(&self, userid: &str, key: &str) -> bool {
         let uuid = Uuid::try_parse(userid);
 
@@ -1643,6 +1645,7 @@ struct Api {
     config: QuarterbackConfig,
     allow_print_config: bool,
     request_logging: bool,
+    action_user_map: QuarterbackActionUsers,
 }
 
 #[OpenApi]
@@ -1689,6 +1692,18 @@ impl Api {
             Err(poem::Error::from_status(http::StatusCode::UNAUTHORIZED))
         }
     }
+
+    async fn action_run() {}
+
+    async fn action_status() {}
+
+    async fn action_abort() {}
+
+    async fn action_timeout() {}
+
+    async fn action_cooldown() {}
+
+    async fn action_log() {}
 }
 
 #[derive(Debug, Copy, Clone, ValueEnum)]
@@ -1723,7 +1738,7 @@ impl QuarterbackMode {
         let _ = repl(&mut eval);
     }
 
-    fn daemon(config: &str, allow_print_config: bool, request_logging: bool) {
+    fn daemon(config: &str, allow_print_config: bool, request_logging: bool, listen_addr: &str) {
         println!("Quarterback Daemon");
         println!();
 
@@ -1734,9 +1749,10 @@ impl QuarterbackMode {
             Some(conf) => {
                 let api = Api {
                     admin_key: Uuid::new_v4().to_string(),
-                    config: conf,
-                    allow_print_config,
                     request_logging,
+                    allow_print_config,
+                    action_user_map: conf.compute_action_map(),
+                    config: conf,
                 };
                 if allow_print_config {
                     println!("Admin key for this run: {}", api.admin_key);
@@ -1750,12 +1766,12 @@ impl QuarterbackMode {
                     );
                     println!("    Enable with --allow-print-config on cmdline");
                 }
-                let api_service = OpenApiService::new(api, "QuarterbackDaemon", "0.1")
-                    .server("http://localhost:4242");
+                let url = format!("http://{}", listen_addr);
+                let api_service = OpenApiService::new(api, "QuarterbackDaemon", "0.1").server(&url);
                 let ui = api_service.swagger_ui();
                 let app = Route::new().nest("/", api_service).nest("/docs", ui);
 
-                let server = Server::new(TcpListener::bind("127.0.0.1:4242")).run(app);
+                let server = Server::new(TcpListener::bind(listen_addr)).run(app);
 
                 match tokio::runtime::Builder::new_multi_thread()
                     .enable_all()
@@ -1763,6 +1779,7 @@ impl QuarterbackMode {
                 {
                     Err(e) => panic!("Unable to start tokio! {e}"),
                     Ok(tokio) => {
+                        println!("Listening at: {url}");
                         let _ = tokio.block_on(server);
                     }
                 }
@@ -1777,6 +1794,7 @@ impl QuarterbackMode {
                 &args.config,
                 args.allow_print_config,
                 args.with_request_logging,
+                &args.listen_addr,
             ),
         }
     }
