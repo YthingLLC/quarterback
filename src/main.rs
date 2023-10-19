@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::prelude::*;
 use std::str::FromStr;
+use std::sync::RwLock;
 use std::time::Duration;
 //maybe I will use this if I ever care about supporting Windows
 //use std::path::Path;
@@ -12,6 +13,7 @@ use argon2::{
     password_hash::{PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
+use chrono::prelude::*;
 use clap::{Parser, ValueEnum};
 use indoc::printdoc;
 use poem::{http, listener::TcpListener, Route, Server};
@@ -1640,12 +1642,92 @@ impl QuarterbackConfig {
     }
 }
 
+struct HttpErr;
+
+impl HttpErr {
+    pub fn http_err<T>(status: http::StatusCode) -> poem::Result<T> {
+        Err(poem::Error::from_status(status))
+    }
+    pub fn too_many_reqs<T>() -> poem::Result<T> {
+        HttpErr::http_err(http::StatusCode::TOO_MANY_REQUESTS)
+    }
+    pub fn internal_server_error<T>() -> poem::Result<T> {
+        HttpErr::http_err(http::StatusCode::INTERNAL_SERVER_ERROR)
+    }
+}
+
+#[derive(Debug)]
+struct RateLimit {
+    limit: Duration,
+    last_allowed: DateTime<Utc>,
+}
+
+struct RateLimiting {
+    rate_map: RwLock<HashMap<String, RateLimit>>,
+}
+
+//if a panic occurs while writing then we *do* want to panic
+//writing to a hashmap should never fail, except with oom
+#[allow(clippy::unwrap_used)]
+impl RateLimiting {
+    //`limit_secs` is dynamically configurable
+    //this will check based upon the last successful run
+    //and, if the action can run, set the rate limit to `limit_secs`
+    //if the action does not currently exist, this will add the action
+    //to the RateLimiting.rate_map, with the passed `limit_secs`
+    pub fn run_check_chain<T>(&self, action: &str, limit_secs: u64, chain: T) -> poem::Result<T> {
+        let action = action.to_string();
+        let limit = self.rate_map.read().unwrap();
+
+        //TODO: Refactor this, it looks too much like C and I don't like it
+        //there's got to be a more "rusty" way of doing this
+        if let Some(action_limit) = limit.get(&action) {
+            let now = Utc::now();
+            if (action_limit.last_allowed + action_limit.limit) < now {
+                //need to drop read ref to limit so that write will work in insert_action
+                drop(limit);
+                self.insert_action(action, limit_secs);
+                return Ok(chain);
+            } else {
+                println!("Action: {action} blocked by rate limiter");
+                return HttpErr::too_many_reqs();
+            }
+        } else {
+            //action does not currently exist, add to rate_map
+
+            //same here, need to drop read ref to limit so that insert_action will work
+            drop(limit);
+            self.insert_action(action, limit_secs);
+            return Ok(chain);
+        }
+    }
+
+    pub fn run_check(&self, action: &str, limit_secs: u64) -> poem::Result<()> {
+        self.run_check_chain(action, limit_secs, ())
+    }
+
+    fn insert_action(&self, action: String, limit_secs: u64) {
+        self.rate_map
+            .write()
+            .unwrap()
+            .insert(action.to_string(), self.rate_limit(limit_secs));
+    }
+    //don't really need &self, but makes calling this easier
+    fn rate_limit(&self, limit_secs: u64) -> RateLimit {
+        RateLimit {
+            limit: Duration::from_secs(limit_secs),
+            last_allowed: Utc::now(),
+        }
+    }
+}
+
 struct Api {
     admin_key: String,
     config: QuarterbackConfig,
     allow_print_config: bool,
     request_logging: bool,
     action_user_map: QuarterbackActionUsers,
+    rate_limiter: RateLimiting,
 }
 
 #[OpenApi]
@@ -1664,6 +1746,7 @@ impl Api {
 
     #[oai(path = "/config/:authkey", method = "get")]
     async fn print_config(&self, authkey: Path<Option<String>>) -> poem::Result<PlainText<String>> {
+        self.rate_limiter.run_check("configprint", 30)?;
         let authkey = match authkey.0 {
             None => "".to_string(),
             Some(key) => key,
@@ -1807,20 +1890,22 @@ impl QuarterbackMode {
                     allow_print_config,
                     action_user_map: conf.compute_action_map(),
                     config: conf,
+                    rate_limiter: RateLimiting { rate_map: RwLock::new(HashMap::new()) }
                 };
+
+                let url = format!("http://{}", listen_addr);
                 if allow_print_config {
                     println!("Admin key for this run: {}", api.admin_key);
                     println!(
-                        "Configuration can be printed at route: /config/{}",
+                        "Configuration can be printed at: {url}/config/{}",
                         api.admin_key
                     );
                 } else {
                     println!(
-                        "Configuration printing disabled. /config/:authkey route will not work"
+                        "Configuration printing disabled. {url}/config/:authkey route will not work"
                     );
                     println!("    Enable with --allow-print-config on cmdline");
                 }
-                let url = format!("http://{}", listen_addr);
                 let api_service = OpenApiService::new(api, "QuarterbackDaemon", "0.1").server(&url);
                 let ui = api_service.swagger_ui();
 
