@@ -75,11 +75,14 @@ All configuration is fully interactive, and your current configuration on disk i
 If all of this is too bothersome for you to deal with configuration, that's fine. You can just edit yaml as well. I may add other "backings" for configuration, but I'm used to yaml... 
 The configurator is written in such a way that adding additional serialization formats is very straight forward. 
 
+Additionally, the daemon mode helpfully provides messages on it's enabled configuration, and what to do to change that configuration! 
+Every part of Quarterback is designed to be as "friendly" as possible, by guiding you to what it "wants" from you.
+
 ### Show me!
 
 Clone this repository and build with `cargo build`, or download the latest release from this repository. 
 
-The only format that will be offered at this time is built against the `x86_64-unknown-linux-musl` in release mode, and stripped of debug symbols.
+The only formats that will be offered at this time is built against the `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` (this does work on a Raspberry Pi 3B!) in release mode.
 This produces a statically linked executable of a fairly small size. This should work on any modern Linux distribution.
 
 There are currently two modes that can be used with Quarterback: `configurator` and `daemon`.
@@ -194,10 +197,13 @@ I thank you, the users, for using my software. I appreciate that you are using s
 Support development on:
 
 [Patreon](https://www.patreon.com/YthingLLC)
+
 [Stripe](https://buy.stripe.com/aEU15SgTG5L09Hi9AA)
 
 Bitcoin: bc1qvr605jye2dqlpyxpp33ttjwghmngas9g75hlwf
+
 Ethereum: 0x0e664F5a8b193Be343BC2DC50b0C98B789eEAAf7
+
 Monero: 49K1rUT5GPvRmuQ4zCzitodTsZ7zPH77n3GoP4Vxx8HTXTzD3UZ69MEYRdJ54BGcecLEFoxiq8B8tK3DwdKreqBJCcx2wmZ
 
 
