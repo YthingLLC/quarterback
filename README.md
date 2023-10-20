@@ -159,6 +159,30 @@ This is disabled by default, turn it on with `actionstdout [actionid] true`
 
 `/[action]/[user]/[userkey]/stdout`
 
+Note: There is a "global" rate limit that is applied before the action cooldown is checked. 
+This is configured with the --global-rate-limit-secs in daemon mode. By default this is 5 seconds.
+
+This is to prevent bruteforce attacks that try to find valid endpoints (action, user, and key combinations).
+
+Actions that do not exist will always return 401 Unauthorized,
+the same as if the user / key combination can not execute the tasks. 
+No need to track a rate limit specific to each "unknown" task! If it doesn't exist, it's "unauthorized," simple as that!
+
+The default value of 5 seconds *should* be sufficient to prevent a denial of service by overloading Quarterback with user key hashing.
+
+This *should* also prevent bruteforcing user keys if an attacker does know a valid action / user combination.
+As the "keys" are hashed with argon2id this is fairly "expensive" on the server side.
+
+If an action does exist, the global rate limit is applied to the action itself,
+as checking if the action exists is "cheap" but hashing keys is "expensive."
+
+The key, being user input exposed to the internet, needs to be fed through an argon2id hash verifier, to check if the user is authorized to execute the action. 
+The "action" only needs to be checked with [SipHash13](https://doc.rust-lang.org/src/std/collections/hash/map.rs.html#3154),
+which is *much* faster (i.e. less "expensive") in comparison. 
+
+This *should* make denial of service attacks much more difficult then if the argon2id hashing was "unprotected"
+
+TODO: Put together a test to prove that all these "shoulds" are actually true.
 
 
 ### Future goals
