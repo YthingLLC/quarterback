@@ -500,6 +500,16 @@ impl QuarterbackConfig {
         false
     }
 
+    pub fn check_action_exists(&self, action: &str) -> bool {
+        let action = Uuid::try_parse(action);
+
+        if let Ok(action) = action {
+            self.actions.contains_key(&action)
+        } else {
+            false
+        }
+    }
+
     pub fn check_user_action_from_uuid(
         &self,
         map: &QuarterbackActionUsers,
@@ -1654,6 +1664,9 @@ impl HttpErr {
     pub fn internal_server_error<T>() -> poem::Result<T> {
         HttpErr::http_err(http::StatusCode::INTERNAL_SERVER_ERROR)
     }
+    pub fn unauthorized<T>() -> poem::Result<T> {
+        HttpErr::http_err(http::StatusCode::UNAUTHORIZED)
+    }
 }
 
 #[derive(Debug)]
@@ -1663,6 +1676,7 @@ struct RateLimit {
 }
 
 struct RateLimiting {
+    //RwLock is used
     rate_map: RwLock<HashMap<String, RateLimit>>,
 }
 
@@ -1675,10 +1689,13 @@ impl RateLimiting {
     //and, if the action can run, set the rate limit to `limit_secs`
     //if the action does not currently exist, this will add the action
     //to the RateLimiting.rate_map, with the passed `limit_secs`
+    //rate_map is "lazy" it doesn't need to know about actions until
+    //they are checked for a ratelimit.
+    //returns poem::Result<T> so that this can be used with ? operator
+    //i.e. rate_map.run_check(action, 30).await?
     pub fn run_check_chain<T>(&self, action: &str, limit_secs: u64, chain: T) -> poem::Result<T> {
         let action = action.to_string();
         let limit = self.rate_map.read().unwrap();
-
         //TODO: Refactor this, it looks too much like C and I don't like it
         //there's got to be a more "rusty" way of doing this
         if let Some(action_limit) = limit.get(&action) {
@@ -1689,7 +1706,7 @@ impl RateLimiting {
                 self.insert_action(action, limit_secs);
                 return Ok(chain);
             } else {
-                println!("Action: {action} blocked by rate limiter");
+                //println!("Action: {action} blocked by rate limiter");
                 return HttpErr::too_many_reqs();
             }
         } else {
@@ -1728,6 +1745,10 @@ struct Api {
     request_logging: bool,
     action_user_map: QuarterbackActionUsers,
     rate_limiter: RateLimiting,
+    //used as a global limit to the endpoints themselves
+    //this is checked seperately from the cooldown of the actual actions
+    //used to prevent bruteforce attacks
+    global_rate_limit_secs: u16,
 }
 
 #[OpenApi]
@@ -1744,9 +1765,15 @@ impl Api {
         PlainText("Hello World")
     }
 
+    //will return http::StatusCode::TOO_MANY_REQUESTS if rate limit is exceeded
+    //otherwise it will return Ok(())
+    async fn check_rate_limit(&self, action: &str, limit_secs: u64) -> poem::Result<()> {
+        self.rate_limiter.run_check(action, limit_secs)
+    }
+
     #[oai(path = "/config/:authkey", method = "get")]
     async fn print_config(&self, authkey: Path<Option<String>>) -> poem::Result<PlainText<String>> {
-        self.rate_limiter.run_check("configprint", 30)?;
+        self.check_rate_limit("configprint", 5).await?;
         let authkey = match authkey.0 {
             None => "".to_string(),
             Some(key) => key,
@@ -1773,6 +1800,18 @@ impl Api {
         } else {
             //Admin key does not match, but configuration printing is allowed
             Err(poem::Error::from_status(http::StatusCode::UNAUTHORIZED))
+        }
+    }
+
+    //used to check if an action exists before applying it's "global" rate limit
+    //all actions
+    async fn action_ratelimit(&self, actionid: &str) -> poem::Result<()> {
+        if self.config.check_action_exists(actionid) {
+            let action_limit = format!("action!{}", actionid);
+            self.check_rate_limit(&action_limit, 5).await?;
+            Ok(())
+        } else {
+            HttpErr::unauthorized()
         }
     }
 
@@ -1875,6 +1914,7 @@ impl QuarterbackMode {
         request_logging: bool,
         listen_addr: &str,
         swagger_ui: bool,
+        global_rate_limit_secs: u16,
     ) {
         println!("Quarterback Daemon");
         println!();
@@ -1890,7 +1930,8 @@ impl QuarterbackMode {
                     allow_print_config,
                     action_user_map: conf.compute_action_map(),
                     config: conf,
-                    rate_limiter: RateLimiting { rate_map: RwLock::new(HashMap::new()) }
+                    rate_limiter: RateLimiting { rate_map: RwLock::new(HashMap::new()) },
+                    global_rate_limit_secs
                 };
 
                 let url = format!("http://{}", listen_addr);
@@ -1927,6 +1968,7 @@ impl QuarterbackMode {
                 {
                     Err(e) => panic!("Unable to start tokio! {e}"),
                     Ok(tokio) => {
+                        println!("A global rate limit of {} seconds is set for Quarterback. Adjust this with --global-rate-limit-secs", global_rate_limit_secs);
                         println!("Listening at: {url}");
                         if swagger_ui {
                             println!("Swagger UI enabled: {url}/swagger");
@@ -1956,6 +1998,7 @@ impl QuarterbackMode {
                 args.with_request_logging,
                 &args.listen_addr,
                 args.with_swagger_ui,
+                args.global_rate_limit_secs,
             ),
         }
     }
@@ -1998,6 +2041,12 @@ struct Args {
         help = "Enables the Swagger UI at /swagger in daemon mode"
     )]
     with_swagger_ui: bool,
+    #[arg(
+        long,
+        default_value_t = 5,
+        help = "'Global rate limit' for API endpoints. This is used for bruteforce prevention."
+    )]
+    global_rate_limit_secs: u16,
 }
 
 fn main() {
