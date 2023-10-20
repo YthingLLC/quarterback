@@ -146,6 +146,10 @@ struct QuarterbackAction {
     log_stdout: bool,
 }
 
+impl QuarterbackAction {
+    fn execute(&self) {}
+}
+
 //TODO: For Daemon mode
 #[derive(Debug)]
 struct QuarterbackActionUsers {
@@ -461,6 +465,34 @@ impl QuarterbackConfig {
 
         false
     }
+    //checks if users exist, and if the key is valid for the user
+    //if the user exists Some(user) will be returned
+    //if the key is also valid, true will be returned
+    //possible return values:
+    //(&QuarterbackUser, true) - user exists, and key is valid
+    //(&QuarterbackUser, false) - user exists, but key is invalid
+    //(None, false) - user does not exist, and therefore key is invalid
+    pub fn get_user_authorized_from_str(
+        &self,
+        userid: &str,
+        key: &str,
+    ) -> (Option<&QuarterbackUser>, bool) {
+        if let Some(user) = self.get_user_from_str(&userid) {
+            (Some(user), user.check_key(key))
+        } else {
+            (None, false)
+        }
+    }
+
+    pub fn get_user_from_str(&self, userid: &str) -> Option<&QuarterbackUser> {
+        let userid = Uuid::try_parse(userid);
+
+        if let Ok(userid) = userid {
+            self.users.get(&userid)
+        } else {
+            None
+        }
+    }
 
     fn check_user_action(&self, userid: &str, actionid: &str) {
         let userid = parseuuid!(userid, "user id");
@@ -507,6 +539,16 @@ impl QuarterbackConfig {
             self.actions.contains_key(&action)
         } else {
             false
+        }
+    }
+
+    pub fn get_action_from_str(&self, action: &str) -> Option<&QuarterbackAction> {
+        let actionid = Uuid::try_parse(action);
+
+        if let Ok(actionid) = actionid {
+            self.actions.get(&actionid)
+        } else {
+            None
         }
     }
 
@@ -1682,6 +1724,8 @@ struct RateLimiting {
 
 //if a panic occurs while writing then we *do* want to panic
 //writing to a hashmap should never fail, except with oom
+//per RwLock<T> docs, read().unwrap() should never panic, unless
+//a write() panics
 #[allow(clippy::unwrap_used)]
 impl RateLimiting {
     //`limit_secs` is dynamically configurable
@@ -1753,9 +1797,17 @@ struct Api {
 
 #[OpenApi]
 impl Api {
+    //this feels like it should be a macro
     fn get_now(&self) -> String {
         format!("{:?}", chrono::offset::Local::now())
     }
+    //this also feels like it should be a macro
+    fn req_log(&self, logline: String) {
+        if self.request_logging {
+            println!("{} - {}", self.get_now(), logline);
+        }
+    }
+
     /// Hello World
     #[oai(path = "/", method = "get")]
     async fn index(&self) -> PlainText<&'static str> {
@@ -1783,14 +1835,10 @@ impl Api {
             None => "".to_string(),
             Some(key) => key,
         };
-        if self.request_logging {
-            println!(
-                "{} GET /config/{} - allow_print_config: {:?}",
-                self.get_now(),
-                &authkey,
-                &self.allow_print_config
-            );
-        }
+        self.req_log(format!(
+            "GET /config/{} ; allow_print_config: {:?}",
+            &authkey, self.allow_print_config
+        ));
         if !self.allow_print_config {
             //Configuration printing is not allowed.
             return Err(poem::Error::from_status(http::StatusCode::FORBIDDEN));
@@ -1808,14 +1856,78 @@ impl Api {
         }
     }
 
+    #[oai(path = "/config/limits/:authkey", method = "get")]
+    async fn print_rate_limits(
+        &self,
+        authkey: Path<Option<String>>,
+    ) -> poem::Result<PlainText<String>> {
+        self.check_rate_limit("ratelimitprint", self.global_rate_limit_secs)
+            .await?;
+        let authkey = match authkey.0 {
+            None => "".to_string(),
+            Some(key) => key,
+        };
+
+        self.req_log(format!(
+            "GET /config/limits/{} ; allow_print_config: {:?}",
+            &authkey, self.allow_print_config
+        ));
+
+        if self.admin_key.eq(&authkey) {
+            let ret = format!("{:?}", self.rate_limiter.rate_map);
+            Ok(PlainText(ret))
+        } else {
+            HttpErr::unauthorized()
+        }
+    }
+
     //used to check if an action exists before applying it's "global" rate limit
-    //all actions
-    async fn action_ratelimit(&self, actionid: &str) -> poem::Result<()> {
-        if self.config.check_action_exists(actionid) {
+    //returns a reference to the QuarterbackAction if it exists
+    async fn action_ratelimit(&self, actionid: &str) -> poem::Result<&QuarterbackAction> {
+        if let Some(action) = self.config.get_action_from_str(&actionid) {
             let action_limit = format!("action!{}", actionid);
-            self.check_rate_limit(&action_limit, self.global_rate_limit_secs)
+            self.check_rate_limit(&action_limit, action.cooldown.as_secs())
                 .await?;
-            Ok(())
+            Ok(action)
+        } else {
+            HttpErr::unauthorized()
+        }
+    }
+
+    //maybe this can be a macro?
+    fn unwrap_action_user_key(
+        action: Option<String>,
+        user: Option<String>,
+        key: Option<String>,
+    ) -> Result<(String, String, String), poem::Error> {
+        let action = action.unwrap_or_default();
+        let user = user.unwrap_or_default();
+        let key = key.unwrap_or_default();
+
+        if action.is_empty() || user.is_empty() || key.is_empty() {
+            HttpErr::unauthorized()
+        } else {
+            Ok((action, user, key))
+        }
+    }
+
+    async fn action_init(
+        &self,
+        action: Option<String>,
+        user: Option<String>,
+        key: Option<String>,
+    ) -> Result<(&QuarterbackAction, &QuarterbackUser, bool), poem::Error> {
+        let (actionid, user, key) = Api::unwrap_action_user_key(action, user, key)?;
+        let action = self.action_ratelimit(&actionid).await?;
+        //now, this is something that I think is incredible about rust...
+        //destructuring a tuple, and checking a result type...
+        //all with... (Some(user), true) = fn()
+        //honestly, it's beautiful
+        //much prettier than a multi layered if statement
+        //TODO: Make the other multi layered if statements this pretty
+        //TODO: Change this bool to something like User::AUTHORIZED as enum
+        if let (Some(user), true) = self.config.get_user_authorized_from_str(&user, &key) {
+            Ok((action, user, true))
         } else {
             HttpErr::unauthorized()
         }
@@ -1828,6 +1940,12 @@ impl Api {
         user: Path<Option<String>>,
         key: Path<Option<String>>,
     ) -> poem::Result<PlainText<String>> {
+        let (action, user, validkey) = self.action_init(actionid.0, user.0, key.0).await?;
+        self.req_log(format!(
+            "GET /run/{}/{}/{}",
+            action.name, user.user_name, validkey
+        ));
+        //println!("{:?}; {:?}; {:?}", action, user, validkey);
         Err(poem::Error::from_status(http::StatusCode::NOT_IMPLEMENTED))
     }
 
@@ -1848,6 +1966,8 @@ impl Api {
         user: Path<Option<String>>,
         key: Path<Option<String>>,
     ) -> poem::Result<PlainText<String>> {
+        let (actionid, user, key) = Api::unwrap_action_user_key(actionid.0, user.0, key.0)?;
+        self.action_ratelimit(&actionid).await?;
         Err(poem::Error::from_status(http::StatusCode::NOT_IMPLEMENTED))
     }
 
@@ -1858,6 +1978,8 @@ impl Api {
         user: Path<Option<String>>,
         key: Path<Option<String>>,
     ) -> poem::Result<PlainText<String>> {
+        let (actionid, user, key) = Api::unwrap_action_user_key(actionid.0, user.0, key.0)?;
+        self.action_ratelimit(&actionid).await?;
         Err(poem::Error::from_status(http::StatusCode::NOT_IMPLEMENTED))
     }
 
@@ -1868,6 +1990,8 @@ impl Api {
         user: Query<Option<String>>,
         key: Query<Option<String>>,
     ) -> poem::Result<PlainText<String>> {
+        let (actionid, user, key) = Api::unwrap_action_user_key(actionid.0, user.0, key.0)?;
+        self.action_ratelimit(&actionid).await?;
         Err(poem::Error::from_status(http::StatusCode::NOT_IMPLEMENTED))
     }
 
@@ -1878,6 +2002,8 @@ impl Api {
         user: Path<Option<String>>,
         key: Path<Option<String>>,
     ) -> poem::Result<PlainText<String>> {
+        let (actionid, user, key) = Api::unwrap_action_user_key(actionid.0, user.0, key.0)?;
+        self.action_ratelimit(&actionid).await?;
         Err(poem::Error::from_status(http::StatusCode::NOT_IMPLEMENTED))
     }
 }
@@ -1887,7 +2013,7 @@ enum QuarterbackMode {
     Config,
     Daemon,
     //TODO: Add eval mode
-    //should operate as configurator, but eval only one line
+    //should operate as configurator, but eval from stdin
 }
 
 impl QuarterbackMode {
@@ -1942,14 +2068,12 @@ impl QuarterbackMode {
 
                 let url = format!("http://{}", listen_addr);
                 if allow_print_config {
-                    println!("Admin key for this run: {}", api.admin_key);
-                    println!(
-                        "Configuration can be printed at: {url}/config/{}",
-                        api.admin_key
-                    );
+                    //println!("Admin key for this run: {}", api.admin_key);
+                    println!("Configuration can be printed at: {url}/config/{}", api.admin_key);
+                    println!("Current rate limits can be printed at: {url}/config/limits/{}", api.admin_key);
                 } else {
                     println!(
-                        "Configuration printing disabled. {url}/config/:authkey route will not work"
+                        "Configuration printing disabled. {url}/config routes will not work"
                     );
                     println!("    Enable with --allow-print-config on cmdline");
                 }
@@ -1982,8 +2106,10 @@ impl QuarterbackMode {
                             println!("Swagger UI disabled: Enable it with --with-swagger-ui");
                         }
                         if request_logging {
-                            println!("Request logging enabled. Note: Only requests which are handled by Quarterback are logged, routes that '404' are not logged.");
-                            println!("To capture all requests, it is recommended to enable logging in the upstream reverse proxy.");
+                            println!("Request logging enabled"); 
+                            println!("  Note: Only requests which are handled by Quarterback are logged, routes that '404', or are rate limited are not logged.");
+                            println!("  Note: Actions and user IDs are translated to their names in this request log. For 'neural efficiency'");
+                            println!("    To capture all/full requests, it is recommended to enable logging in the upstream reverse proxy.");
                         } else {
                             println!("Request logging disabled. No additional output to stdout is expected.");
                             println!("    Enable it with --with-request-logging");
@@ -2031,7 +2157,7 @@ struct Args {
     #[arg(
         long,
         default_value_t = false,
-        help = "Log requests to routes handled by Quarterback (not including 404s)"
+        help = "Log requests to routes handled by Quarterback (not including 404s, or rate limit dropped requests)"
     )]
     with_request_logging: bool,
     #[arg(
