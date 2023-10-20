@@ -1748,7 +1748,7 @@ struct Api {
     //used as a global limit to the endpoints themselves
     //this is checked seperately from the cooldown of the actual actions
     //used to prevent bruteforce attacks
-    global_rate_limit_secs: u16,
+    global_rate_limit_secs: u64,
 }
 
 #[OpenApi]
@@ -1759,9 +1759,13 @@ impl Api {
     /// Hello World
     #[oai(path = "/", method = "get")]
     async fn index(&self) -> PlainText<&'static str> {
-        if self.request_logging {
-            println!("{} GET /", self.get_now());
-        }
+        //I don't believe that / should be logged with Quarterback
+        //This is really just to "prove" that it's working
+        //No rate limiting is applied, if you see "Hello World"
+        //through your reverse proxy you know it's working.
+        //if self.request_logging {
+        //    println!("{} GET /", self.get_now());
+        //}
         PlainText("Hello World")
     }
 
@@ -1773,7 +1777,8 @@ impl Api {
 
     #[oai(path = "/config/:authkey", method = "get")]
     async fn print_config(&self, authkey: Path<Option<String>>) -> poem::Result<PlainText<String>> {
-        self.check_rate_limit("configprint", 5).await?;
+        self.check_rate_limit("configprint", self.global_rate_limit_secs)
+            .await?;
         let authkey = match authkey.0 {
             None => "".to_string(),
             Some(key) => key,
@@ -1808,7 +1813,8 @@ impl Api {
     async fn action_ratelimit(&self, actionid: &str) -> poem::Result<()> {
         if self.config.check_action_exists(actionid) {
             let action_limit = format!("action!{}", actionid);
-            self.check_rate_limit(&action_limit, 5).await?;
+            self.check_rate_limit(&action_limit, self.global_rate_limit_secs)
+                .await?;
             Ok(())
         } else {
             HttpErr::unauthorized()
