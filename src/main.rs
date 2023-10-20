@@ -494,6 +494,23 @@ impl QuarterbackConfig {
         }
     }
 
+    pub fn get_user(&self, userid: &Uuid) -> Option<&QuarterbackUser> {
+        self.users.get(userid)
+    }
+
+    //This does the same thing as get_user_authorized_from_str
+    pub fn get_user_authorized(
+        &self,
+        userid: &Uuid,
+        key: &str,
+    ) -> (Option<&QuarterbackUser>, bool) {
+        if let Some(user) = self.get_user(userid) {
+            (Some(user), user.check_key(key))
+        } else {
+            (None, false)
+        }
+    }
+
     fn check_user_action(&self, userid: &str, actionid: &str) {
         let userid = parseuuid!(userid, "user id");
         let actionid = parseuuid!(actionid, "action id");
@@ -585,7 +602,6 @@ impl QuarterbackConfig {
             return action.contains(userid);
         }
         //return false by default
-        println!("default false");
         false
     }
     fn set_super_user(&mut self, userid: &str, flag: bool) {
@@ -1697,6 +1713,9 @@ impl QuarterbackConfig {
 struct HttpErr;
 
 impl HttpErr {
+    pub fn or_err(status: http::StatusCode) -> poem::Error {
+        poem::Error::from_status(status)
+    }
     pub fn http_err<T>(status: http::StatusCode) -> poem::Result<T> {
         Err(poem::Error::from_status(status))
     }
@@ -1708,6 +1727,9 @@ impl HttpErr {
     }
     pub fn unauthorized<T>() -> poem::Result<T> {
         HttpErr::http_err(http::StatusCode::UNAUTHORIZED)
+    }
+    pub fn or_unauthorized() -> poem::Error {
+        HttpErr::or_err(http::StatusCode::UNAUTHORIZED)
     }
 }
 
@@ -1911,14 +1933,17 @@ impl Api {
         }
     }
 
+    //this does check if the user is authorized to run the action
     async fn action_init(
         &self,
         action: Option<String>,
         user: Option<String>,
         key: Option<String>,
     ) -> Result<(&QuarterbackAction, &QuarterbackUser, bool), poem::Error> {
-        let (actionid, user, key) = Api::unwrap_action_user_key(action, user, key)?;
+        let (actionid, userid, key) = Api::unwrap_action_user_key(action, user, key)?;
         let action = self.action_ratelimit(&actionid).await?;
+        let actionid = Uuid::try_parse(&actionid).or(HttpErr::unauthorized())?;
+        let userid = Uuid::try_parse(&userid).or(HttpErr::unauthorized())?;
         //now, this is something that I think is incredible about rust...
         //destructuring a tuple, and checking a result type...
         //all with... (Some(user), true) = fn()
@@ -1926,8 +1951,14 @@ impl Api {
         //much prettier than a multi layered if statement
         //TODO: Make the other multi layered if statements this pretty
         //TODO: Change this bool to something like User::AUTHORIZED as enum
-        if let (Some(user), true) = self.config.get_user_authorized_from_str(&user, &key) {
-            Ok((action, user, true))
+        if let (Some(user), true) = self.config.get_user_authorized(&userid, &key) {
+            let action_user = self
+                .action_user_map
+                .map
+                .get(&actionid)
+                .ok_or(HttpErr::or_unauthorized())?
+                .contains(&userid);
+            Ok((action, user, action_user))
         } else {
             HttpErr::unauthorized()
         }
