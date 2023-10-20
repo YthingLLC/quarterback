@@ -2052,7 +2052,7 @@ struct Args {
         default_value_t = 5,
         help = "'Global rate limit' for API endpoints. This is used for bruteforce prevention."
     )]
-    global_rate_limit_secs: u16,
+    global_rate_limit_secs: u64,
 }
 
 fn main() {
