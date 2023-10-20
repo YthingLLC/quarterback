@@ -17,7 +17,11 @@ rand_core = "0.6.4"
 serde = { version = "1.0.188", features = ["derive"] }
 serde_yaml = "0.9.25"
 simple-repl = "0.1.4"
-tokio = { version = "1.33.0", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1.33.0", features = [
+  "macros",
+  "rt-multi-thread",
+  "process",
+] }
 uuid = { version = "1.4.1", features = [
   "v4",
   "fast-rng",

@@ -162,6 +162,7 @@ impl QuarterbackAction {
             command.args(args);
         }
 
+        let mut ret = String::new();
         if self.log_stdout {
             command.stdout(Stdio::piped());
             command.stderr(Stdio::piped());
@@ -171,7 +172,7 @@ impl QuarterbackAction {
             let stderr = &output.stderr;
             let stdout = &output.stdout;
 
-            let mut ret = String::new();
+            ret += &format!("{:=^80}\n", format!("Execution Log: {}", Utc::now()));
 
             ret += &format!("{:=^80}\n", "stderr");
             ret += &format!("{}\n", String::from_utf8_lossy(stderr));
@@ -184,11 +185,67 @@ impl QuarterbackAction {
             command.stdout(Stdio::null());
             command.stderr(Stdio::null());
 
-            None
+            command.spawn().ok()?;
+
+            ret += &format!(
+                "{:=^80}\n{:=^80}",
+                "Output Logging Disabled",
+                format!("Last Run: {}", Utc::now())
+            );
+            Some(ret)
         }
     }
 
-    pub async fn execute(&self) {}
+    //TODO add cancellation token return
+    pub async fn execute(&self) -> Option<String> {
+        let mut cmd = tokio::process::Command::new(&self.action_path);
+
+        if let Some(args) = self.arg_split() {
+            cmd.args(args);
+        }
+
+        if self.log_stdout {
+            cmd.stdout(Stdio::piped());
+            cmd.stderr(Stdio::piped());
+        } else {
+            cmd.stdout(Stdio::null());
+            cmd.stderr(Stdio::null());
+        }
+
+        let mut child = cmd.spawn().ok()?;
+        let mut ret = String::new();
+
+        if self.log_stdout {
+            let stdout = child.stdout.take()?;
+            let stderr = child.stderr.take()?;
+
+            use tokio::io::AsyncBufReadExt;
+
+            let mut stdout = tokio::io::BufReader::new(stdout).lines();
+            let mut stderr = tokio::io::BufReader::new(stderr).lines();
+
+            ret += &format!("{:=^80}\n", format!("Execution Log: {}", Utc::now()));
+
+            while let Some(line) = stderr.next_line().await.ok()? {
+                ret += &format!("ERR: {}", line);
+            }
+
+            while let Some(line) = stdout.next_line().await.ok()? {
+                ret += &format!("OUT: {}", line);
+            }
+            ret += &format!("\n{:=^80}", format!("Action Complete: {}", Utc::now()));
+        } else {
+            let status = child.wait().await.ok()?;
+            ret += &format!(
+                "{:=^80}\n{:=^80}\n{:=^80}",
+                "Output Logging Disabled",
+                format!("Last Run: {}", Utc::now()),
+                format!("Exit Code: {}", status)
+            );
+        }
+
+        Some(ret)
+    }
 }
 
 //TODO: For Daemon mode
@@ -2022,6 +2079,11 @@ impl Api {
             let action_user =
                 self.config
                     .check_user_action_from_uuid(&self.action_user_map, &userid, &actionid);
+
+            if !action_user {
+                return HttpErr::unauthorized();
+            }
+
             Ok((action, user, action_user))
         } else {
             HttpErr::unauthorized()
@@ -2041,7 +2103,15 @@ impl Api {
             action.name, user.user_name, validkey
         ));
         //println!("{:?}; {:?}; {:?}", action, user, validkey);
-        Err(poem::Error::from_status(http::StatusCode::NOT_IMPLEMENTED))
+
+        let output = action.execute().await;
+
+        match output {
+            Some(output) => Ok(PlainText(output)),
+            None => HttpErr::internal_server_error(),
+        }
+
+        //Err(poem::Error::from_status(http::StatusCode::NOT_IMPLEMENTED))
     }
 
     #[oai(path = "/status/:actionid/:user/:key", method = "get")]
