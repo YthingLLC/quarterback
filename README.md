@@ -127,7 +127,9 @@ Now it is saved in the ./qbconfig.yml file! You can exit the configurator, and y
 
 Well, after all that effort configuring everything, run it as a daemon. It will now serve a very simple "API" over HTTP. It doesn't know anything at all about SSL. 
 
-I have reverse proxies handling SSL for me everywhere, but I am not opposed to adding the feature. I just have no need to have this serve HTTPS directly. Please use a reverse proxy.
+I have reverse proxies handling SSL for me everywhere, but I am not opposed to adding the feature. 
+I just have no need, at this time, to have this serve HTTPS directly. 
+Please use a reverse proxy for now, but feel free to open an issue (or even implement it and give me a pull request!) if this is something you would like.
 
 The daemon will then respond to requests at the following endpoints:
 
