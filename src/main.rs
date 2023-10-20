@@ -3,6 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::prelude::*;
+use std::process::Stdio;
 use std::str::FromStr;
 use std::sync::RwLock;
 use std::time::Duration;
@@ -147,7 +148,47 @@ struct QuarterbackAction {
 }
 
 impl QuarterbackAction {
-    fn execute(&self) {}
+    fn arg_split(&self) -> Option<std::str::Split<'_, char>> {
+        if !self.action_args.is_empty() {
+            Some(self.action_args.split(' '))
+        } else {
+            None
+        }
+    }
+
+    pub fn execute_sync(&self) -> Option<String> {
+        let mut command = std::process::Command::new(&self.action_path);
+        if let Some(args) = self.arg_split() {
+            command.args(args);
+        }
+
+        if self.log_stdout {
+            command.stdout(Stdio::piped());
+            command.stderr(Stdio::piped());
+            //TODO: Add an error return to this
+            command.spawn().ok()?;
+            let output = command.output().ok()?;
+            let stderr = &output.stderr;
+            let stdout = &output.stdout;
+
+            let mut ret = String::new();
+
+            ret += &format!("{:=^80}\n", "stderr");
+            ret += &format!("{}\n", String::from_utf8_lossy(stderr));
+
+            ret += &format!("{:=^80}\n", "stdout");
+            ret += &format!("{}\n", String::from_utf8_lossy(stdout));
+
+            Some(ret)
+        } else {
+            command.stdout(Stdio::null());
+            command.stderr(Stdio::null());
+
+            None
+        }
+    }
+
+    pub async fn execute(&self) {}
 }
 
 //TODO: For Daemon mode
@@ -793,6 +834,18 @@ impl QuarterbackConfig {
         );
     }
 
+    fn do_action(&mut self, action: &str) {
+        let uuid = parseuuid!(action, "action id");
+
+        let action = getaction!(self, &uuid);
+
+        println!("{:=^80}", "Action Executing");
+        if let Some(ret) = action.execute_sync() {
+            println!("{ret}");
+        }
+        println!("{:=^80}", "Action Completed");
+    }
+
     fn add_role(&mut self, name: &str) {
         let uuid = Uuid::new_v4();
         self.roles.insert(
@@ -1205,6 +1258,10 @@ impl QuarterbackConfig {
                                             You probably do not want this. 
                                         Example: addaction [name] [timeout (seconds)] [cooldown (seconds)] [command] [args...]
 
+            actionexec              execute an action
+                                        if log_stdout is true for the action, the output is returned interactively
+                                        if log_stdout is false for the action, it will display 'action complete' with no other output.
+
             ==== ROLE MANAGEMENT ====
 
             addrole                 add a new role
@@ -1387,6 +1444,16 @@ impl QuarterbackConfig {
                 } else {
                     println!("ERROR: A userid, userkey, and actionid must be provided!");
                     println!("    Example: checkexecute [userid] [userkey] [actionid]");
+                }
+            }
+            Some("actionexec") => {
+                let action = input_vec.next();
+
+                if let Some(action) = action {
+                    self.do_action(action);
+                } else {
+                    println!("ERROR: An action ID must be provided!");
+                    println!("    Example: actionexec [actionid]");
                 }
             }
             Some("superuser") | Some("usersuper") => {
