@@ -1950,14 +1950,11 @@ impl Api {
         //honestly, it's beautiful
         //much prettier than a multi layered if statement
         //TODO: Make the other multi layered if statements this pretty
-        //TODO: Change this bool to something like User::AUTHORIZED as enum
+        //TODO: Change this bool to something like User::ValidKey as enum
         if let (Some(user), true) = self.config.get_user_authorized(&userid, &key) {
-            let action_user = self
-                .action_user_map
-                .map
-                .get(&actionid)
-                .ok_or(HttpErr::or_unauthorized())?
-                .contains(&userid);
+            let action_user =
+                self.config
+                    .check_user_action_from_uuid(&self.action_user_map, &userid, &actionid);
             Ok((action, user, action_user))
         } else {
             HttpErr::unauthorized()
