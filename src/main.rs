@@ -1920,7 +1920,7 @@ impl QuarterbackMode {
         request_logging: bool,
         listen_addr: &str,
         swagger_ui: bool,
-        global_rate_limit_secs: u16,
+        global_rate_limit_secs: u64,
     ) {
         println!("Quarterback Daemon");
         println!();
