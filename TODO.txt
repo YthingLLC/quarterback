@@ -46,8 +46,8 @@ refactor out the .next() calls to a macro, i.e. iternext!(var1, var2...)
    maybe full macro could be something like:
       evalinput!(action, name, err:literal, help:literal, inner fn (i.e. a call to self.fn(action, name)))
 
-daemon mode
-action executor
+daemon mode - in progress
+action executor - done - todo: canceling and status endpoints
 
 reporting? smtp? notifications? webhooks?
 
@@ -56,3 +56,5 @@ refactor the whole damn thing so it's not a single giant file?
 
 
 add github oauth, and add config for users to map to their username from oauth provider
+
+systemd service file
