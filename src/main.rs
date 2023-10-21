@@ -136,7 +136,7 @@ struct QuarterbackRole {
     allowed_users: HashSet<Uuid>,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 struct QuarterbackAction {
     name: String,
     action_path: String,
@@ -227,11 +227,11 @@ impl QuarterbackAction {
             ret += &format!("{:=^80}\n", format!("Execution Log: {}", Utc::now()));
 
             while let Some(line) = stderr.next_line().await.ok()? {
-                ret += &format!("ERR: {}", line);
+                ret += &format!("ERR: {}\n", line);
             }
 
             while let Some(line) = stdout.next_line().await.ok()? {
-                ret += &format!("OUT: {}", line);
+                ret += &format!("OUT: {}\n", line);
             }
             ret += &format!("\n{:=^80}", format!("Action Complete: {}", Utc::now()));
         } else {
@@ -1934,6 +1934,9 @@ struct Api {
     allow_print_config: bool,
     request_logging: bool,
     action_user_map: QuarterbackActionUsers,
+    //                               generics go brrrr           to the moooon>>>>
+    action_handles: RwLock<HashMap<Uuid, tokio::task::JoinHandle<Option<String>>>>,
+    action_status: RwLock<HashMap<Uuid, String>>,
     rate_limiter: RateLimiting,
     //used as a global limit to the endpoints themselves
     //this is checked seperately from the cooldown of the actual actions
@@ -2063,7 +2066,7 @@ impl Api {
         action: Option<String>,
         user: Option<String>,
         key: Option<String>,
-    ) -> Result<(&QuarterbackAction, &QuarterbackUser, bool), poem::Error> {
+    ) -> Result<(QuarterbackAction, Uuid, &QuarterbackUser, bool), poem::Error> {
         let (actionid, userid, key) = Api::unwrap_action_user_key(action, user, key)?;
         let action = self.action_ratelimit(&actionid).await?;
         let actionid = Uuid::try_parse(&actionid).or(HttpErr::unauthorized())?;
@@ -2081,10 +2084,10 @@ impl Api {
                     .check_user_action_from_uuid(&self.action_user_map, &userid, &actionid);
 
             if !action_user {
-                return HttpErr::unauthorized();
+                HttpErr::unauthorized()
+            } else {
+                Ok((action.clone(), actionid, user, action_user))
             }
-
-            Ok((action, user, action_user))
         } else {
             HttpErr::unauthorized()
         }
@@ -2097,19 +2100,31 @@ impl Api {
         user: Path<Option<String>>,
         key: Path<Option<String>>,
     ) -> poem::Result<PlainText<String>> {
-        let (action, user, validkey) = self.action_init(actionid.0, user.0, key.0).await?;
+        let (action, actionid, user, validkey) =
+            self.action_init(actionid.0, user.0, key.0).await?;
         self.req_log(format!(
             "GET /run/{}/{}/{}",
             action.name, user.user_name, validkey
         ));
         //println!("{:?}; {:?}; {:?}", action, user, validkey);
 
-        let output = action.execute().await;
-
-        match output {
-            Some(output) => Ok(PlainText(output)),
-            None => HttpErr::internal_server_error(),
+        match self.action_handles.write() {
+            Err(_) => HttpErr::internal_server_error(),
+            Ok(mut handle) => {
+                handle.insert(
+                    actionid,
+                    tokio::spawn(async move { action.execute().await }),
+                );
+                Ok(PlainText("Task Started".to_string()))
+            }
         }
+
+        //let output = action.execute().await;
+
+        //match output {
+        //    Some(output) => Ok(PlainText(output)),
+        //    None => HttpErr::internal_server_error(),
+        //}
 
         //Err(poem::Error::from_status(http::StatusCode::NOT_IMPLEMENTED))
     }
@@ -2121,6 +2136,23 @@ impl Api {
         user: Path<Option<String>>,
         key: Path<Option<String>>,
     ) -> poem::Result<PlainText<String>> {
+        let (action, actionid, user, validkey) =
+            self.action_init(actionid.0, user.0, key.0).await?;
+        self.req_log(format!(
+            "GET /status/{}/{}/{}",
+            action.name, user.user_name, validkey
+        ));
+        //match self.action_handles.read() {
+        //    Err(_) => HttpErr::internal_server_error(),
+        //    Ok(handle) => match handle.get(&actionid) {
+        //        None => Ok(PlainText("task has not run yet")),
+        //        Some(handle) => {
+        //            if !handle.is_finished() {
+        //                Ok(PlainText("task still running. check back later."))
+        //            }
+        //        }
+        //    },
+        //}
         Err(poem::Error::from_status(http::StatusCode::NOT_IMPLEMENTED))
     }
 
@@ -2228,7 +2260,10 @@ impl QuarterbackMode {
                     action_user_map: conf.compute_action_map(),
                     config: conf,
                     rate_limiter: RateLimiting { rate_map: RwLock::new(HashMap::new()) },
-                    global_rate_limit_secs
+                    global_rate_limit_secs,
+                    //at least it isn't that ugly here
+                    action_handles: RwLock::new(HashMap::new()),
+                    action_status: RwLock::new(HashMap::new()),
                 };
 
                 let url = format!("http://{}", listen_addr);
