@@ -1936,7 +1936,7 @@ struct Api {
     action_user_map: QuarterbackActionUsers,
     //                               generics go brrrr           to the moooon>>>>
     action_handles: RwLock<HashMap<Uuid, tokio::task::JoinHandle<Option<String>>>>,
-    action_status: RwLock<HashMap<Uuid, String>>,
+    action_status: std::sync::Arc<RwLock<HashMap<Uuid, String>>>,
     rate_limiter: RateLimiting,
     //used as a global limit to the endpoints themselves
     //this is checked seperately from the cooldown of the actual actions
@@ -2030,11 +2030,18 @@ impl Api {
         }
     }
 
+    async fn endpoint_ratelimit(&self, endpoint: &str) -> poem::Result<()> {
+        let endpoint_limit = format!("endpoint!{endpoint}");
+        self.check_rate_limit(&endpoint_limit, self.global_rate_limit_secs)
+            .await?;
+        Ok(())
+    }
+
     //used to check if an action exists before applying it's "global" rate limit
     //returns a reference to the QuarterbackAction if it exists
     async fn action_ratelimit(&self, actionid: &str) -> poem::Result<&QuarterbackAction> {
         if let Some(action) = self.config.get_action_from_str(&actionid) {
-            let action_limit = format!("action!{}", actionid);
+            let action_limit = format!("action!{actionid}");
             self.check_rate_limit(&action_limit, action.cooldown.as_secs())
                 .await?;
             Ok(action)
@@ -2063,12 +2070,25 @@ impl Api {
     //this does check if the user is authorized to run the action
     async fn action_init(
         &self,
+        endpoint: &str,
         action: Option<String>,
         user: Option<String>,
         key: Option<String>,
     ) -> Result<(QuarterbackAction, Uuid, &QuarterbackUser, bool), poem::Error> {
+        self.endpoint_ratelimit(endpoint).await?;
         let (actionid, userid, key) = Api::unwrap_action_user_key(action, user, key)?;
-        let action = self.action_ratelimit(&actionid).await?;
+        //let action = self.action_ratelimit(&actionid).await?;
+        let action;
+        //the action cooldown rate limiter only applies on the /run endpoint
+        //all other endpoints are "non destructive" and don't need the same protection
+        if "run".eq(endpoint) {
+            action = self.action_ratelimit(&actionid).await?
+        } else {
+            action = self
+                .config
+                .get_action_from_str(&actionid)
+                .ok_or(HttpErr::or_unauthorized())?
+        }
         let actionid = Uuid::try_parse(&actionid).or(HttpErr::unauthorized())?;
         let userid = Uuid::try_parse(&userid).or(HttpErr::unauthorized())?;
         //now, this is something that I think is incredible about rust...
@@ -2101,23 +2121,28 @@ impl Api {
         key: Path<Option<String>>,
     ) -> poem::Result<PlainText<String>> {
         let (action, actionid, user, validkey) =
-            self.action_init(actionid.0, user.0, key.0).await?;
+            self.action_init("run", actionid.0, user.0, key.0).await?;
         self.req_log(format!(
             "GET /run/{}/{}/{}",
             action.name, user.user_name, validkey
         ));
         //println!("{:?}; {:?}; {:?}", action, user, validkey);
 
-        match self.action_handles.write() {
-            Err(_) => HttpErr::internal_server_error(),
-            Ok(mut handle) => {
-                handle.insert(
-                    actionid,
-                    tokio::spawn(async move { action.execute().await }),
-                );
-                Ok(PlainText("Task Started".to_string()))
-            }
+        let action_status = self.action_status.clone();
+
+        if let Ok(mut writer) = action_status.write() {
+            writer.insert(actionid, format!("Running started at: {}", Utc::now()));
         }
+
+        tokio::spawn(async move {
+            let res = action.execute().await;
+            if let Some(res) = res {
+                if let Ok(mut writer) = action_status.write() {
+                    writer.insert(actionid, res);
+                }
+            }
+        });
+        Ok(PlainText("Task Started".to_string()))
 
         //let output = action.execute().await;
 
@@ -2136,24 +2161,24 @@ impl Api {
         user: Path<Option<String>>,
         key: Path<Option<String>>,
     ) -> poem::Result<PlainText<String>> {
-        let (action, actionid, user, validkey) =
-            self.action_init(actionid.0, user.0, key.0).await?;
+        let (action, actionid, user, validkey) = self
+            .action_init("status", actionid.0, user.0, key.0)
+            .await?;
         self.req_log(format!(
             "GET /status/{}/{}/{}",
             action.name, user.user_name, validkey
         ));
-        //match self.action_handles.read() {
-        //    Err(_) => HttpErr::internal_server_error(),
-        //    Ok(handle) => match handle.get(&actionid) {
-        //        None => Ok(PlainText("task has not run yet")),
-        //        Some(handle) => {
-        //            if !handle.is_finished() {
-        //                Ok(PlainText("task still running. check back later."))
-        //            }
-        //        }
-        //    },
-        //}
-        Err(poem::Error::from_status(http::StatusCode::NOT_IMPLEMENTED))
+        let action_status = self.action_status.clone();
+        //why can't this be the end of this fn?
+        let ret = match action_status.read() {
+            Err(_) => HttpErr::internal_server_error(),
+            Ok(reader) => match reader.get(&actionid) {
+                None => Ok(PlainText("Action has not yet run!".to_string())),
+                Some(res) => Ok(PlainText(res.clone())),
+            },
+        };
+        //Rust, why do you want this?
+        ret
     }
 
     #[oai(path = "/abort/:actionid/:user/:key", method = "get")]
@@ -2163,8 +2188,6 @@ impl Api {
         user: Path<Option<String>>,
         key: Path<Option<String>>,
     ) -> poem::Result<PlainText<String>> {
-        let (actionid, user, key) = Api::unwrap_action_user_key(actionid.0, user.0, key.0)?;
-        self.action_ratelimit(&actionid).await?;
         Err(poem::Error::from_status(http::StatusCode::NOT_IMPLEMENTED))
     }
 
@@ -2175,8 +2198,6 @@ impl Api {
         user: Path<Option<String>>,
         key: Path<Option<String>>,
     ) -> poem::Result<PlainText<String>> {
-        let (actionid, user, key) = Api::unwrap_action_user_key(actionid.0, user.0, key.0)?;
-        self.action_ratelimit(&actionid).await?;
         Err(poem::Error::from_status(http::StatusCode::NOT_IMPLEMENTED))
     }
 
@@ -2187,8 +2208,6 @@ impl Api {
         user: Query<Option<String>>,
         key: Query<Option<String>>,
     ) -> poem::Result<PlainText<String>> {
-        let (actionid, user, key) = Api::unwrap_action_user_key(actionid.0, user.0, key.0)?;
-        self.action_ratelimit(&actionid).await?;
         Err(poem::Error::from_status(http::StatusCode::NOT_IMPLEMENTED))
     }
 
@@ -2199,8 +2218,6 @@ impl Api {
         user: Path<Option<String>>,
         key: Path<Option<String>>,
     ) -> poem::Result<PlainText<String>> {
-        let (actionid, user, key) = Api::unwrap_action_user_key(actionid.0, user.0, key.0)?;
-        self.action_ratelimit(&actionid).await?;
         Err(poem::Error::from_status(http::StatusCode::NOT_IMPLEMENTED))
     }
 }
@@ -2263,7 +2280,8 @@ impl QuarterbackMode {
                     global_rate_limit_secs,
                     //at least it isn't that ugly here
                     action_handles: RwLock::new(HashMap::new()),
-                    action_status: RwLock::new(HashMap::new()),
+                    //holy ugliness batman
+                    action_status: std::sync::Arc::new(RwLock::new(HashMap::new())),
                 };
 
                 let url = format!("http://{}", listen_addr);
