@@ -18,7 +18,7 @@ use chrono::prelude::*;
 use clap::{Parser, ValueEnum};
 use indoc::printdoc;
 use poem::{http, listener::TcpListener, Route, Server};
-use poem_openapi::{param::Path, param::Query, payload::PlainText, OpenApi, OpenApiService};
+use poem_openapi::{param::Path, payload::PlainText, OpenApi, OpenApiService};
 use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
 use simple_repl::{repl, EvalResult};
@@ -2101,15 +2101,13 @@ impl TaskManager {
             .write()
             .unwrap()
             .insert(task_id.clone(), TaskHandle { task, expires });
-        let mut task_history = self.task_history.write().unwrap();
+        let task_history = self.task_history.clone();
+        let mut task_history = task_history.write().unwrap();
 
         if let Some(history) = task_history.get_mut(&task_id) {
             history.push(Utc::now());
         } else {
-            let history = task_history.insert(task_id, Vec::new());
-            if let Some(mut history) = history {
-                history.push(Utc::now());
-            }
+            task_history.insert(task_id, vec![Utc::now()]);
         }
     }
 }
@@ -2476,7 +2474,26 @@ impl Api {
         user: Path<Option<String>>,
         key: Path<Option<String>>,
     ) -> poem::Result<PlainText<String>> {
-        Err(poem::Error::from_status(http::StatusCode::NOT_IMPLEMENTED))
+        let (action, actionid, user, validkey) =
+            self.action_init("log", actionid.0, user.0, key.0).await?;
+        self.req_log(format!(
+            "GET /log/{}/{}/{}",
+            action.name, user.user_name, validkey
+        ));
+
+        let log = self.task_manager.get_run_history(&actionid);
+
+        match log {
+            None => Ok(PlainText("Task Never Started".to_string())),
+            Some(log) => {
+                let mut ret = String::new();
+                for exec in log {
+                    ret += &format!("{}\n", exec);
+                }
+
+                Ok(PlainText(ret))
+            }
+        }
     }
 }
 
