@@ -575,7 +575,7 @@ impl QuarterbackConfig {
         userid: &str,
         key: &str,
     ) -> (Option<&QuarterbackUser>, bool) {
-        if let Some(user) = self.get_user_from_str(&userid) {
+        if let Some(user) = self.get_user_from_str(userid) {
             (Some(user), user.check_key(key))
         } else {
             (None, false)
@@ -1899,10 +1899,10 @@ impl RateLimiting {
                 //need to drop read ref to limit so that write will work in insert_action
                 drop(limit);
                 self.insert_action(action.to_string(), limit_secs);
-                return Ok(chain);
+                Ok(chain)
             } else {
                 //println!("Action: {action} blocked by rate limiter");
-                return HttpErr::too_many_reqs();
+                HttpErr::too_many_reqs()
             }
         } else {
             //action does not currently exist, add to rate_map
@@ -1910,7 +1910,7 @@ impl RateLimiting {
             //same here, need to drop read ref to limit so that insert_action will work
             drop(limit);
             self.insert_action(action.to_string(), limit_secs);
-            return Ok(chain);
+            Ok(chain)
         }
     }
 
@@ -1970,9 +1970,9 @@ enum TaskState {
 }
 
 enum TaskAbortStatus {
-    TaskAbortRequested,
+    AbortRequested,
     TaskUnknown,
-    TaskFinished,
+    Finished,
 }
 
 //same reason as RateLimiting
@@ -2012,7 +2012,7 @@ impl TaskManager {
                             Local::now(),
                             task.0
                         );
-                        abort_monitor.push(task.0.clone());
+                        abort_monitor.push(*task.0);
                         task.1.task.abort();
                     }
                 }
@@ -2022,14 +2022,14 @@ impl TaskManager {
                     //this also "magically" handles tasks handles that are removed
                     //from `tasks`, if we can't get a taskhandle for the Uuid
                     //it is dropped from abort_monitor
-                    if let Some(task_handle) = tasks.read().unwrap().get(&task) {
+                    if let Some(task_handle) = tasks.read().unwrap().get(task) {
                         if task_handle.task.is_finished() {
                             println!("{:?} - MONITOR: Task {} aborted", Local::now(), task);
                         } else {
                             //I don't particularly like this, I'd prefer if I could just move this
                             //Maybe I should try into_iter()?
                             //TODO: ^
-                            still_aborting.push(task.clone());
+                            still_aborting.push(*task);
                         }
                     }
                 }
@@ -2055,14 +2055,10 @@ impl TaskManager {
     }
 
     fn get_run_history(&self, task_id: &Uuid) -> Option<Vec<DateTime<Utc>>> {
-        if let Some(history) = self.task_history.read().unwrap().get(task_id) {
-            //I mean... is this really any worse than what a web API would technically be doing
-            //here? You have to read out the entire struct to return it over the network...
-            //This just isn't going through the network... yet, anyway
-            Some(history.clone())
-        } else {
-            None
-        }
+        //I mean... is this really any worse than what a web API would technically be doing
+        //here? You have to read out the entire struct to return it over the network...
+        //This just isn't going through the network... yet, anyway
+        self.task_history.read().unwrap().get(task_id).cloned()
     }
 
     fn get_task_state(&self, task_id: &Uuid) -> TaskState {
@@ -2083,10 +2079,10 @@ impl TaskManager {
     fn abort_task(&self, task_id: &Uuid) -> TaskAbortStatus {
         if let Some(handle) = self.tasks.read().unwrap().get(task_id) {
             if handle.task.is_finished() {
-                TaskAbortStatus::TaskFinished
+                TaskAbortStatus::Finished
             } else {
                 handle.task.abort();
-                TaskAbortStatus::TaskAbortRequested
+                TaskAbortStatus::AbortRequested
             }
         } else {
             TaskAbortStatus::TaskUnknown
@@ -2100,7 +2096,7 @@ impl TaskManager {
         self.tasks
             .write()
             .unwrap()
-            .insert(task_id.clone(), TaskHandle { task, expires });
+            .insert(task_id, TaskHandle { task, expires });
         let task_history = self.task_history.clone();
         let mut task_history = task_history.write().unwrap();
 
@@ -2223,7 +2219,7 @@ impl Api {
     //used to check if an action exists before applying it's "global" rate limit
     //returns a reference to the QuarterbackAction if it exists
     async fn action_ratelimit(&self, actionid: &str) -> poem::Result<&QuarterbackAction> {
-        if let Some(action) = self.config.get_action_from_str(&actionid) {
+        if let Some(action) = self.config.get_action_from_str(actionid) {
             let action_limit = format!("action!{actionid}");
             self.check_rate_limit(&action_limit, action.cooldown.as_secs())
                 .await?;
@@ -2260,18 +2256,15 @@ impl Api {
     ) -> Result<(QuarterbackAction, Uuid, &QuarterbackUser, bool), poem::Error> {
         self.endpoint_ratelimit(endpoint).await?;
         let (actionid, userid, key) = Api::unwrap_action_user_key(action, user, key)?;
-        //let action = self.action_ratelimit(&actionid).await?;
-        let action;
         //the action cooldown rate limiter only applies on the /run endpoint
         //all other endpoints are "non destructive" and don't need the same protection
-        if "run".eq(endpoint) {
-            action = self.action_ratelimit(&actionid).await?
+        let action = if "run".eq(endpoint) {
+            self.action_ratelimit(&actionid).await?
         } else {
-            action = self
-                .config
+            self.config
                 .get_action_from_str(&actionid)
                 .ok_or(HttpErr::or_unauthorized())?
-        }
+        };
         let actionid = Uuid::try_parse(&actionid).or(HttpErr::unauthorized())?;
         let userid = Uuid::try_parse(&userid).or(HttpErr::unauthorized())?;
         //now, this is something that I think is incredible about rust...
@@ -2317,8 +2310,14 @@ impl Api {
             writer.insert(actionid, format!("Running started at: {}", Utc::now()));
         }
 
-        let cloneid = actionid.clone();
-        let clonetimeout = action.timeout.clone();
+        //this makes a copy of actionid
+        //Clippy suggested this, but I feel it makes it less clear what's going on
+        //idk, maybe I'll ignore clippy on this one...
+        let cloneid = actionid;
+        //same here, I think removing .clone() makes it less clear
+        //that it is a copy...
+        //again, I may just ignore clippy on this one...
+        let clonetimeout = action.timeout;
         let task = tokio::spawn(async move {
             let res = action.execute().await;
             if let Some(res) = res {
@@ -2418,8 +2417,8 @@ impl Api {
         //if we reach this point, it's already been validated that the task ("action")
         //definitely exists
         match abort_status {
-            TaskAbortStatus::TaskAbortRequested => Ok(PlainText("Abort requested...".to_string())),
-            TaskAbortStatus::TaskFinished => Ok(PlainText("Aborted / Finished".to_string())),
+            TaskAbortStatus::AbortRequested => Ok(PlainText("Abort requested...".to_string())),
+            TaskAbortStatus::Finished => Ok(PlainText("Aborted / Finished".to_string())),
             TaskAbortStatus::TaskUnknown => Ok(PlainText("Task Never Started".to_string())),
         }
     }
@@ -2574,13 +2573,11 @@ impl QuarterbackMode {
 
                 //let app = Route::new().nest("/", api_service).nest("/swagger", ui);
 
-                let app;
-
-                if swagger_ui {
-                    app = Route::new().nest("/", api_service).nest("/swagger", ui);
+                let app = if swagger_ui {
+                    Route::new().nest("/", api_service).nest("/swagger", ui)
                 } else {
-                    app = Route::new().nest("/", api_service);
-                }
+                    Route::new().nest("/", api_service)
+                };
 
                 let server = Server::new(TcpListener::bind(listen_addr)).run(app);
 
