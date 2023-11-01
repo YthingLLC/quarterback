@@ -1890,16 +1890,15 @@ impl RateLimiting {
     //returns poem::Result<T> so that this can be used with ? operator
     //i.e. rate_map.run_check(action, 30).await?
     pub fn run_check_chain<T>(&self, action: &str, limit_secs: u64, chain: T) -> poem::Result<T> {
-        let action = action.to_string();
         let limit = self.rate_map.read().unwrap();
         //TODO: Refactor this, it looks too much like C and I don't like it
         //there's got to be a more "rusty" way of doing this
-        if let Some(action_limit) = limit.get(&action) {
+        if let Some(action_limit) = limit.get(action) {
             let now = Utc::now();
             if (action_limit.last_allowed + action_limit.limit) < now {
                 //need to drop read ref to limit so that write will work in insert_action
                 drop(limit);
-                self.insert_action(action, limit_secs);
+                self.insert_action(action.to_string(), limit_secs);
                 return Ok(chain);
             } else {
                 //println!("Action: {action} blocked by rate limiter");
@@ -1910,13 +1909,30 @@ impl RateLimiting {
 
             //same here, need to drop read ref to limit so that insert_action will work
             drop(limit);
-            self.insert_action(action, limit_secs);
+            self.insert_action(action.to_string(), limit_secs);
             return Ok(chain);
         }
     }
 
     pub fn run_check(&self, action: &str, limit_secs: u64) -> poem::Result<()> {
         self.run_check_chain(action, limit_secs, ())
+    }
+
+    pub fn check_limit(&self, action: &str) -> i64 {
+        let limit = self.rate_map.read().unwrap();
+
+        if let Some(action_limit) = limit.get(action) {
+            let limit = action_limit.last_allowed + action_limit.limit;
+            let now = Utc::now();
+            if limit > now {
+                let remaining = limit - now;
+                remaining.num_seconds()
+            } else {
+                0
+            }
+        } else {
+            0
+        }
     }
 
     fn insert_action(&self, action: String, limit_secs: u64) {
@@ -1926,6 +1942,7 @@ impl RateLimiting {
             .insert(action.to_string(), self.rate_limit(limit_secs));
     }
     //don't really need &self, but makes calling this easier
+    //TODO: Probably change this to new()
     fn rate_limit(&self, limit_secs: u64) -> RateLimit {
         RateLimit {
             limit: Duration::from_secs(limit_secs),
@@ -2336,10 +2353,13 @@ impl Api {
             },
         };
         //Rust, why do you want this?
+        //Stop it, don't try it. You can't remove this.
+        //if you take away let ret and try to end fn with just the match above
+        //rust doesn't like this, it's convinced it doesn't live long enough
         ret
     }
 
-    //like status, but just what it's doing
+    //like status, but just what it's state is, without all the "pretty" formatting and logging
     #[oai(path = "/state/:actionid/:user/:key", method = "get")]
     async fn action_state(
         &self,
@@ -2349,8 +2369,21 @@ impl Api {
     ) -> poem::Result<PlainText<String>> {
         let (action, actionid, user, validkey) =
             self.action_init("state", actionid.0, user.0, key.0).await?;
+        self.req_log(format!(
+            "GET /state/{}/{}/{}",
+            action.name, user.user_name, validkey
+        ));
 
-        HttpErr::internal_server_error()
+        let state = self.task_manager.get_task_state(&actionid);
+
+        //if we get UnknownTask back from TaskManager it means TaskManager has
+        //never seen the task, not that the task doesn't exist
+        //if we reach this point, the task ("action") definitely exists
+        match state {
+            TaskState::Running => Ok(PlainText("Running".to_string())),
+            TaskState::Finished => Ok(PlainText("Done / Stopped".to_string())),
+            TaskState::UnknownTask => Ok(PlainText("Task Never Started".to_string())),
+        }
     }
 
     #[oai(path = "/abort/:actionid/:user/:key", method = "get")]
@@ -2360,7 +2393,24 @@ impl Api {
         user: Path<Option<String>>,
         key: Path<Option<String>>,
     ) -> poem::Result<PlainText<String>> {
-        Err(poem::Error::from_status(http::StatusCode::NOT_IMPLEMENTED))
+        let (action, actionid, user, validkey) =
+            self.action_init("abort", actionid.0, user.0, key.0).await?;
+        self.req_log(format!(
+            "GET /abort/{}/{}/{}",
+            action.name, user.user_name, validkey
+        ));
+
+        let abort_status = self.task_manager.abort_task(&actionid);
+
+        //just like state, if we get TaskUnknown, it means TaskManager has
+        //never seen the task, not that the task doesn't exist
+        //if we reach this point, it's already been validated that the task ("action")
+        //definitely exists
+        match abort_status {
+            TaskAbortStatus::TaskAbortRequested => Ok(PlainText("Abort requested...".to_string())),
+            TaskAbortStatus::TaskFinished => Ok(PlainText("Aborted / Finished".to_string())),
+            TaskAbortStatus::TaskUnknown => Ok(PlainText("Task Never Started".to_string())),
+        }
     }
 
     #[oai(path = "/timeout/:actionid/:user/:key", method = "get")]
@@ -2377,10 +2427,22 @@ impl Api {
     async fn action_cooldown(
         &self,
         actionid: Path<Option<String>>,
-        user: Query<Option<String>>,
-        key: Query<Option<String>>,
+        user: Path<Option<String>>,
+        key: Path<Option<String>>,
     ) -> poem::Result<PlainText<String>> {
-        Err(poem::Error::from_status(http::StatusCode::NOT_IMPLEMENTED))
+        let (action, actionid, user, validkey) = self
+            .action_init("cooldown", actionid.0, user.0, key.0)
+            .await?;
+        self.req_log(format!(
+            "GET /cooldown/{}/{}/{}",
+            action.name, user.user_name, validkey
+        ));
+
+        let limit = self.rate_limiter.check_limit(&format!("action!{actionid}"));
+        //*eye roll*
+        let limit = format!("{limit}");
+
+        Ok(PlainText(limit))
     }
 
     #[oai(path = "/log/:actionid/:user/:key", method = "get")]
