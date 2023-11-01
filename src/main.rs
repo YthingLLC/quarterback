@@ -2041,6 +2041,19 @@ impl TaskManager {
             .store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
+    fn get_timeout_secs(&self, task_id: &Uuid) -> i64 {
+        if let Some(task) = self.tasks.read().unwrap().get(task_id) {
+            let now = Utc::now();
+            if task.expires > now {
+                (task.expires - now).num_seconds()
+            } else {
+                0
+            }
+        } else {
+            0
+        }
+    }
+
     fn get_run_history(&self, task_id: &Uuid) -> Option<Vec<DateTime<Utc>>> {
         if let Some(history) = self.task_history.read().unwrap().get(task_id) {
             //I mean... is this really any worse than what a web API would technically be doing
@@ -2420,7 +2433,18 @@ impl Api {
         user: Path<Option<String>>,
         key: Path<Option<String>>,
     ) -> poem::Result<PlainText<String>> {
-        Err(poem::Error::from_status(http::StatusCode::NOT_IMPLEMENTED))
+        let (action, actionid, user, validkey) = self
+            .action_init("timeout", actionid.0, user.0, key.0)
+            .await?;
+        self.req_log(format!(
+            "GET /timeout/{}/{}/{}",
+            action.name, user.user_name, validkey
+        ));
+
+        let timeout = self.task_manager.get_timeout_secs(&actionid);
+        let timeout = format!("{timeout}");
+
+        Ok(PlainText(timeout))
     }
 
     #[oai(path = "/cooldown/:actionid/:user/:key", method = "get")]
