@@ -1569,6 +1569,12 @@ impl QuarterbackConfig {
                     let timeout = u64::from_str(timeout);
                     let cooldown = u64::from_str(cooldown);
                     if let (Ok(timeout), Ok(cooldown)) = (timeout, cooldown) {
+                        if timeout > cooldown {
+                            println!("WARNING: Timeout should not exceed cooldown.");
+                            println!("    You will not be able to do anything with tasks started prior to latest run!");
+                            println!("    i.e. If the task is 'run' again before expires, but after cooldown, the previous run can not be 'aborted'");
+                            println!("    The stdout and stderr logs will also end up concatenated together if stdout logging is enabled.");
+                        }
                         self.add_action(name, timeout, cooldown, path, action_args);
                     } else {
                         println!("ERROR: Timeout and cooldown must be positive integers!");
@@ -1979,7 +1985,7 @@ impl TaskManager {
                 for task in tasks.read().unwrap().iter() {
                     //println!("{:?} {:?}", task.0, task.1.expires);
                     if (Utc::now() > task.1.expires) && !task.1.task.is_finished() {
-                        println!("Task {} expired... aborting...", task.0);
+                        println!("{:?} - MONITOR: Task {} expired... aborting...", Local::now(), task.0);
                         abort_monitor.push(task.0.clone());
                         task.1.task.abort();
                     }
@@ -1992,7 +1998,7 @@ impl TaskManager {
                     //it is dropped from abort_monitor
                     if let Some(task_handle) = tasks.read().unwrap().get(&task) {
                         if task_handle.task.is_finished() {
-                            println!("Task {} aborted", task);
+                            println!("{:?} - MONITOR: Task {} aborted", Local::now(), task);
                         } else {
                             //I don't particularly like this, I'd prefer if I could just move this
                             //Maybe I should try into_iter()?
