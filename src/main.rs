@@ -1936,7 +1936,7 @@ impl RateLimiting {
 
 struct TaskHandle {
     task: tokio::task::JoinHandle<()>,
-    expires: DateTime<Utc>
+    expires: DateTime<Utc>,
 }
 
 struct TaskManager {
@@ -1949,7 +1949,7 @@ struct TaskManager {
 enum TaskState {
     Running,
     Finished,
-    UnknownTask
+    UnknownTask,
 }
 
 enum TaskAbortStatus {
@@ -1961,19 +1961,24 @@ enum TaskAbortStatus {
 //same reason as RateLimiting
 #[allow(clippy::unwrap_used)]
 impl TaskManager {
-
     fn new() -> Self {
         let atomic_false = std::sync::atomic::AtomicBool::new(false);
-        TaskManager { tasks: std::sync::Arc::new(RwLock::new(HashMap::new())), task_history: std::sync::Arc::new(RwLock::new(HashMap::new())), monitor_running: atomic_false }
+        TaskManager {
+            tasks: std::sync::Arc::new(RwLock::new(HashMap::new())),
+            task_history: std::sync::Arc::new(RwLock::new(HashMap::new())),
+            monitor_running: atomic_false,
+        }
         //TODO: Add task watcher / history status logger
         //as a seperate thread
-
     }
-    
+
     //maybe I can figure out a better way to do this, but for now... so be it
     fn start_monitor(&self) {
-        if self.monitor_running.load(std::sync::atomic::Ordering::SeqCst) {
-            return
+        if self
+            .monitor_running
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            return;
         }
         let tasks = self.tasks.clone();
         tokio::spawn(async move {
@@ -1985,13 +1990,17 @@ impl TaskManager {
                 for task in tasks.read().unwrap().iter() {
                     //println!("{:?} {:?}", task.0, task.1.expires);
                     if (Utc::now() > task.1.expires) && !task.1.task.is_finished() {
-                        println!("{:?} - MONITOR: Task {} expired... aborting...", Local::now(), task.0);
+                        println!(
+                            "{:?} - MONITOR: Task {} expired... aborting...",
+                            Local::now(),
+                            task.0
+                        );
                         abort_monitor.push(task.0.clone());
                         task.1.task.abort();
                     }
                 }
                 let mut still_aborting: Vec<Uuid> = Vec::new();
-                
+
                 for task in abort_monitor.iter() {
                     //this also "magically" handles tasks handles that are removed
                     //from `tasks`, if we can't get a taskhandle for the Uuid
@@ -2011,20 +2020,21 @@ impl TaskManager {
                 abort_monitor = still_aborting;
             }
         });
-        self.monitor_running.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.monitor_running
+            .store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
     fn get_run_history(&self, task_id: &Uuid) -> Option<Vec<DateTime<Utc>>> {
-       if let Some(history) = self.task_history.read().unwrap().get(task_id) {
+        if let Some(history) = self.task_history.read().unwrap().get(task_id) {
             //I mean... is this really any worse than what a web API would technically be doing
             //here? You have to read out the entire struct to return it over the network...
             //This just isn't going through the network... yet, anyway
             Some(history.clone())
-       } else {
-           None
-       }
+        } else {
+            None
+        }
     }
-    
+
     fn get_task_state(&self, task_id: &Uuid) -> TaskState {
         if let Some(task) = self.tasks.read().unwrap().get(task_id) {
             if task.task.is_finished() {
@@ -2057,7 +2067,10 @@ impl TaskManager {
         //start the monitor if it's not already running
         self.start_monitor();
         let expires = Utc::now() + timeout;
-        self.tasks.write().unwrap().insert(task_id.clone(), TaskHandle { task, expires });
+        self.tasks
+            .write()
+            .unwrap()
+            .insert(task_id.clone(), TaskHandle { task, expires });
         let mut task_history = self.task_history.write().unwrap();
 
         if let Some(history) = task_history.get_mut(&task_id) {
@@ -2069,7 +2082,6 @@ impl TaskManager {
             }
         }
     }
-
 }
 
 struct Api {
@@ -2327,6 +2339,20 @@ impl Api {
         ret
     }
 
+    //like status, but just what it's doing
+    #[oai(path = "/state/:actionid/:user/:key", method = "get")]
+    async fn action_state(
+        &self,
+        actionid: Path<Option<String>>,
+        user: Path<Option<String>>,
+        key: Path<Option<String>>,
+    ) -> poem::Result<PlainText<String>> {
+        let (action, actionid, user, validkey) =
+            self.action_init("state", actionid.0, user.0, key.0).await?;
+
+        HttpErr::internal_server_error()
+    }
+
     #[oai(path = "/abort/:actionid/:user/:key", method = "get")]
     async fn action_abort(
         &self,
@@ -2424,7 +2450,7 @@ impl QuarterbackMode {
                     config: conf,
                     rate_limiter: RateLimiting { rate_map: RwLock::new(HashMap::new()) },
                     global_rate_limit_secs,
-                    task_manager: TaskManager::new(), 
+                    task_manager: TaskManager::new(),
                     //holy ugliness batman
                     action_status: std::sync::Arc::new(RwLock::new(HashMap::new())),
                 };
