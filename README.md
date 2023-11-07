@@ -21,17 +21,18 @@ Quarterback is meant to make it *simple* to execute *anything*, *anywhere* from 
 
 Think of this as an even more flexible "AppRise," that's not just limited to sending notifications.
     
-    Quarterback, *can* provide a standard "API" to send notifications, but it is not "batteries included."
-    For example, Quarterback can make a request via the appropriate curl command to another API, with whatever
-    translation you need to do in between. Even a simple shell script will do.
+Quarterback, *can* provide a standard "API" to send notifications, but it is not "batteries included."
+For example, Quarterback can make a request via the appropriate curl command to another API, with whatever
+translation you need to do in between. Even a simple shell script will do.
 
 ### Why?
 
 I have, over the many years of managing Linux servers, built up a lot of shell scripts and utilities that are generally specific to the environment in which they are deployed.
 
-They're useful. They automate some routine task that benefits greatly from automation. Either do to the regularity of the need, or from the infrequency in which it is completed. 
+They're useful. They automate some routine task that benefits greatly from automation. Either do to the regularity of the task, or from the infrequency in which it is completed. 
 
-Of which, I have found both scenarios benefit from solid documentation of the task in the form of... shell scripts. Yes. shell scripts. 
+Of which, I have found both scenarios benefit from solid documentation of the task in the form of... shell scripts.
+Yes. shell scripts. Almost all server management tasks boil down to "shell scripts." Manually inputting commands? That's just a shell script with extra steps.
 
 This contrasts against a configuration management tool, like Ansible, as it's less about "configuration management" and more of a desire to have a simpler way to trigger tasks on remote systems,
 which can not be automated with something like cron. 
@@ -44,7 +45,8 @@ This has allowed me to give, less 'technical' users, the ability to "self-manage
 
 I have built 'guard rails' around what can be managed, by wrapping some of the common management tasks into small shell scripts and utilities. 
 
-I have built Quarterback out of a desire to provide those same users a "click here" link for those same actions. Saving them from needing to learn how to use SSH or the command line.
+I have built Quarterback out of a desire to provide those same users a "click here" link for those same actions. 
+Saving them from needing to learn how to use SSH or the command line to interact with the shell scripts for their environment.
 
 ### What? How?
 
@@ -69,7 +71,7 @@ Every command that modifies a configuration "object" starts with the name of wha
 Every command that modifies a configuration "object" tell you the order of the arguments in the command name itself. `username` expects a userid, and a new name.
 
 All configuration is fully interactive, and your current configuration on disk is left alone until you deliberately save it.
-    - However, there is no undo history. There is command history though, and "destructive" commands like the '\*name' commands display the old value. 
+    - However, there is no built in undo history. There is command history though (limited to current configurator session), and "destructive" commands like the '\*name' commands display the old value. 
       A command can be "undone" by running it again, but with the "old" value.
 
 If all of this is too bothersome for you to deal with configuration, that's fine. You can just edit yaml as well. I may add other "backings" for configuration, but I'm used to yaml... 
@@ -82,7 +84,7 @@ Every part of Quarterback is designed to be as "friendly" as possible, by guidin
 
 Clone this repository and build with `cargo build`, or download the latest release from this repository. 
 
-The only formats that will be offered at this time is built against the `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` (this does work on a Raspberry Pi 3B!) in release mode.
+The only formats that will be offered at this time are built against the `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` (this does work on a Raspberry Pi 3B!) in release mode.
 This produces a statically linked executable of a fairly small size. This should work on any modern Linux distribution.
 
 There are currently two modes that can be used with Quarterback: `configurator` and `daemon`.
@@ -97,7 +99,7 @@ If this is your first time running Quarterback, don't give it a configuration fi
 On your first run, the configurator will let you know you are running in `memory` mode. This mode allows you 
 to make any configuration you want, but does not save anything to disk.
 
-To save to disk use `backing yaml /path/to/yamlfile.yml`
+To save to disk use `backing yaml /path/to/yamlfile.yml` followed by `save`
 
 All paths, even for actions, are recommended to be the **full path** to the file / executable. 
 This is for the same reason as cron, to prevent issues with relative paths!
@@ -107,7 +109,7 @@ Here's a short example of creating a new action, with a 60 second timeout, and a
 ```
 adduser david
 addrole action1role 
-addaction action1 60 120 curl https://ything.net > /dev/null
+addaction action1 60 120 curl https://ything.net
 addroleaction [roleid] [actionid]
 save
 ```
@@ -133,33 +135,51 @@ Please use a reverse proxy for now, but feel free to open an issue (or even impl
 
 The daemon will then respond to requests at the following endpoints:
 
-Run the action:
+Verify the Quarterback is running
+This will return "Hello World" with no rate limiting
 
-`/[action]/[user]/[userkey]`
+`/`
+
+If enabled at daemon start with the `--allow-print-config` flag an admin key will be printed to stdout. This is unique to every daemon invocation.
+This endpoint will return the configuration Yaml for the daemon.
+
+`/config/[adminkey]`
+
+Run the action
+
+`/run/[action]/[user]/[userkey]`
 
 Display the status of the action (does not persist daemon restarts):
+Displays the stdout history from the last invocation of the action (if enabled)
+This will update as the action runs to completion. 
+This is disabled by default, turn it on with `actionstdout [actionid] true`
 
-`/[action]/[user]/[userkey]/status`
+By default this will only return the start and finish times for an action.
+
+`/status/[action]/[user]/[userkey]`
+
+Display the 'state' of the task, running or finished only:
+
+`/state/[action]/[user]/[userkey]`
 
 Abort a running action, (this sends signal 15 to the process by default, signal 9 (or any other) can be sent if configured). 
 Design note: You may want to ensure that whatever your actions do, can recover from this. 
 This can be disabled by setting the abort signal for the action to 0.
 
-`/[action]/[user]/[userkey]/abort`
+`/abort/[action]/[user]/[userkey]`
 
 Display the remaining time on the timeout, in seconds
 
-`/[action]/[user]/[userkey]/timeout`
+`/timeout/[action]/[user]/[userkey]`
 
 Display the remaining time on the cooldown, in seconds
 
-`/[action]/[user]/[userkey]/cooldown`
+`/cooldown/[action]/[user]/[userkey]`
 
-Display the stdout history from the last invocation of the action
-This will update as the action runs to completion. 
-This is disabled by default, turn it on with `actionstdout [actionid] true`
+Display a list of invocation times for a task
 
-`/[action]/[user]/[userkey]/stdout`
+`/log/[aciton]/[user]/[userkey]`
+
 
 Note: There is a "global" rate limit that is applied before the action cooldown is checked. 
 This is configured with the --global-rate-limit-secs in daemon mode. By default this is 5 seconds.
@@ -187,6 +207,41 @@ This *should* make denial of service attacks much more difficult then if the arg
 TODO: Put together a test to prove that all these "shoulds" are actually true.
 
 
+### Running the Daemon
+
+My recommended configuration (TODO: SystemD service file), runs the daemon like so:
+
+    ./quarterback daemon --config qb.yml --with-request-logging --listen-addr 10.88.0.1:4242
+     ^ executable ^ mode          ^ config file ^ see whats going on          ^ where to listen (by default this is 127.0.0.1:4242)
+
+Daemon configuration options are:
+
+Path to the configuration file
+
+`--config`
+
+Enable configuration printing, this will provide an "admin key" at daemon invocation, this does not persist between runs, and is output to stdout wherever the daemon is run.
+
+`--allow-print-config`
+
+Output served requests to stdout, rejected requests are not logged, except where the reason for rejection is invalid user key. This may change in the future. 
+By default, requests are not logged.
+
+`--with-request-logging`
+
+Define where to listen for requests, by default this is `127.0.0.1:4242`. This must be an IP:Port combination or daemon will fail to start.
+
+`--listen-addr [IP]:[Port]`
+
+This is more for debugging, but this flag will enable the [SwaggerUI](https://swagger.io/tools/swagger-ui/) for the API at /swagger
+
+`--with-swagger-ui`
+
+Adjust the "Global Rate Limit" that is applied before the task cooldown, by default this is 5 seconds
+
+`--global-rate-limit-secs [timeout in seconds]`
+
+
 ### Future goals
 
 TOTP and FIDO2/U2F 2FA. TOTP and FIDO2 are both *easy* from a user experience perspective. Type in a code, or press a button on a "USB Stick". Both TOTP and FIDO2 provide strong 2FA. 
@@ -199,7 +254,7 @@ Ability to pass data through to the executed action. This is a dangerous feature
 One of the major goals for this project is security, in addition to simplicity. At times, these are competing goals.
 Security can increase complexity, but with good engineering, can be mostly transparent to the user.
 
-At the current time, actions are not able to receive any "outside" data through Quarterback. This is an intential design decision at this time, as it prevents attacked based upon
+At the current time, actions are not able to receive any "outside" data through Quarterback. This is an intentional design decision at this time, as it prevents attacks based upon
 malicious user input. Quarterback can do *anything*, it does not restrict you in it's usage, as long as what you need to do fits the "domain" that it is appropriate for.
 At this time, commands, and all associated arguments, must be predefined in the configuration. No input can be passed down to the running "actions" at runtime. 
 
@@ -208,10 +263,16 @@ User input is not guaranteed to be "safe." The responsibility of ensuring input 
 
 Due to how naturally "expoitable" this would be due to the nature of what Quarterback itself *is*, I am hesistant to include this as a feature, without very careful thought to the design.
 
+### TODO List
+
+ - All of the TODOs in the source code
+ - Refactoring the source code to not be one giant file
+ - Refactoring to make the source code a bit more "coherent"
+
 
 ### Bug Reports / Feature Improvements
 
-Documentation clarity is an important consideration of this project. IF there is any part of the documentation that is not clear, please open an issue. If there is anything ambigous, it is my goal
+Documentation clarity is an important consideration of this project. If there is any part of the documentation that is not clear, please open an issue. If there is anything ambigous, it is my goal
 to ensure that it is made clear. 
 
 Do you have an idea for a feature or improvement? Open a "Feature Improvement" issue, and I'd love to discuss it with you!
