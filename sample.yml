@@ -1,0 +1,68 @@
+backing: !YamlFile {}
+users:
+  f71044d4-f4ba-4f31-96cb-317182dc2ec4:
+    user_name: david-super
+    user_key: $argon2id$v=19$m=19456,t=2,p=1$BfR+Sn0qKUbt3GEpHqSM/w$8W0NK4vuRm3MRdJ+mQkg8UXo+P+mYJFE111We8I2wo8
+    super_user: true
+  80fc8486-4cd4-4e53-85df-677ef3555df1:
+    user_name: david
+    user_key: $argon2id$v=19$m=19456,t=2,p=1$ZYe6wCVxJxujXEZQKn5RTA$rWfXMfg+78ahOQtwOwINCi+a/sIN4vBDOgJIl/sgpQc
+    super_user: false
+roles:
+  7aa2abfc-d7ac-4284-95b5-668a49a8bdaf:
+    role_name: test
+    allowed_actions:
+    - 4d6b4c90-76f1-420b-a009-181c120a1488
+    - aaadf8cd-0e2b-4a8d-a700-04b76eb1c061
+    - 7fa407d5-b915-4b79-862f-2f99ee584588
+    allowed_users:
+    - 80fc8486-4cd4-4e53-85df-677ef3555df1
+actions:
+  7fa407d5-b915-4b79-862f-2f99ee584588:
+    name: sleep
+    action_path: /usr/bin/sleep
+    action_args: '30'
+    timeout:
+      secs: 3
+      nanos: 0
+    cooldown:
+      secs: 10
+      nanos: 0
+    signal: 15
+    log_stdout: false
+  aaadf8cd-0e2b-4a8d-a700-04b76eb1c061:
+    name: date
+    action_path: /usr/bin/date
+    action_args: +%c
+    timeout:
+      secs: 5
+      nanos: 0
+    cooldown:
+      secs: 10
+      nanos: 0
+    signal: 15
+    log_stdout: true
+  8731916d-21a0-4cbf-8ad6-230bf8e6289f:
+    name: no
+    action_path: /usr/bin/false
+    action_args: ''
+    timeout:
+      secs: 5
+      nanos: 0
+    cooldown:
+      secs: 10
+      nanos: 0
+    signal: 15
+    log_stdout: false
+  4d6b4c90-76f1-420b-a009-181c120a1488:
+    name: date-noargs
+    action_path: /usr/bin/date
+    action_args: ''
+    timeout:
+      secs: 5
+      nanos: 0
+    cooldown:
+      secs: 10
+      nanos: 0
+    signal: 15
+    log_stdout: true
